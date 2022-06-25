@@ -4,18 +4,19 @@
 
 ### Core Rendering Issues
 - [ ] **Fix texture stretching issue** - Current texture rendering has aspect ratio problems
-- [ ] **Fix draw_manager rendering** - `d3d11_draw_manager::draw()` has incomplete implementation (lines 200-230)
-- [ ] **Fix font fallback system** - No default font fallback when no font is set (line 177 in draw_buffer.cpp)
-- [ ] **Fix device access in font loading** - Font system needs proper device access from renderer (line 117 in font.cpp)
-- [ ] **Fix texture handle creation** - Font atlas needs proper `resources::tex` handle creation (line 146 in font.cpp)
-- [ ] **Consolidate to single buffer system** - Replace multiple buffers (textured, non-textured, text) with unified buffer that handles all geometry types
-- [ ] **Improve texture push/pop system** - Enhance texture stack management with better error handling and automatic cleanup
+    - Issue seems to have disappeared. Will continue to monitor.
+- [x] **Fix draw_manager rendering** - `d3d11_draw_manager::draw()` has incomplete implementation (lines 200-230)
+- [x] **Fix font fallback system** - No default font fallback when no font is set (line 177 in draw_buffer.cpp)
+- [x] **Fix device access in font loading** - Font system needs proper device access from renderer (line 117 in font.cpp)
+- [x] **Fix texture handle creation** - Font atlas needs proper `resources::tex` handle creation (line 146 in font.cpp)
+- [x] **Consolidate to single buffer system** - Replace multiple buffers (textured, non-textured, text) with unified buffer that handles all geometry types
+- [x] **Improve texture push/pop system** - Enhance texture stack management with better error handling and automatic cleanup
 
 ### Memory & Resource Management
-- [ ] **Fix potential memory leaks** in texture creation and destruction
-- [ ] **Add proper RAII for D3D11 resources** - Ensure all COM objects are properly released
-- [ ] **Fix texture stack clearing** - Ensure texture stacks are properly cleared between frames
-- [ ] **Add resource validation** - Validate texture dimensions, shader compilation, etc.
+- [x] **Fix potential memory leaks** in texture creation and destruction
+- [x] **Add proper RAII for D3D11 resources** - Ensure all COM objects are properly released
+- [x] **Fix texture stack clearing** - Ensure texture stacks are properly cleared between frames
+- [x] **Add resource validation** - Validate texture dimensions, shader compilation, etc.
 
 ## 🏗️ **ARCHITECTURE & INFRASTRUCTURE**
 

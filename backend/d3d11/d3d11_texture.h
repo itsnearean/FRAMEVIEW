@@ -14,6 +14,7 @@ class d3d11_texture;
 class d3d11_texture : public resources::texture {
 public:
     d3d11_texture(ID3D11Device* device, uint32_t width, uint32_t height);
+    d3d11_texture(ID3D11Device* device, ID3D11Texture2D* existing_texture, ID3D11ShaderResourceView* existing_srv = nullptr);
     ~d3d11_texture() override;
 
     bool set_data(const uint8_t* data, uint32_t width, uint32_t height) override;
@@ -29,6 +30,11 @@ public:
     bool copy_texture_data(ID3D11DeviceContext* ctx);
 
     ID3D11ShaderResourceView* srv() const { return _srv.Get(); }
+    uint32_t width() const override { return _width; }
+    uint32_t height() const override { return _height; }
+    void bind(uint32_t slot = 0) override;
+    void unbind() override;
+    ID3D11ShaderResourceView* get_srv() const override { return _srv.Get(); }
 
     bool _dirty = false;
 private:
@@ -45,12 +51,18 @@ public:
     ~d3d11_texture_dict() override;
 
     resources::tex create_texture(uint32_t width, uint32_t height) override;
+    resources::tex create_texture_from_d3d11(ID3D11Texture2D* d3d_texture, ID3D11ShaderResourceView* srv = nullptr);
     void destroy_texture(resources::tex tex) override;
     bool set_texture_data(resources::tex tex, const uint8_t* data, uint32_t width, uint32_t height) override;
     bool get_texture_size(resources::tex tex, uint32_t& width, uint32_t& height) override;
     void clear_textures() override;
     void pre_reset() override;
     void post_reset() override;
+    
+    // memory tracking
+    size_t texture_count() const { return _textures.size(); }
+    size_t update_queue_size() const { return _update_queue.size(); }
+    void log_memory_stats() const;
 
     // queue a texture for update
     void queue_update(d3d11_texture* tex);
@@ -60,8 +72,8 @@ public:
 private:
     Microsoft::WRL::ComPtr<ID3D11Device> _device;
     std::vector<resources::tex> _textures;
-    std::mutex _mutex;
-    std::mutex _update_queue_mutex;
+    mutable std::mutex _mutex;
+    mutable std::mutex _update_queue_mutex;
     std::vector<d3d11_texture*> _update_queue;
 };
 

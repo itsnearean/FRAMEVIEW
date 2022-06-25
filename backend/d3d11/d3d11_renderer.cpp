@@ -55,22 +55,47 @@ void d3d11_renderer::initialize(int width, int height, HWND hwnd) {
     _tex_dict = std::make_unique<d3d11_texture_dict>(_device.Get());
     _draw_manager = std::make_unique<d3d11_draw_manager>(_device.Get(), _context.Get());
 
-    // load new generic vertex and pixel shaders
+    // load shaders
     auto vs_blob = load_shader_blob("resources/shaders/vertex/generic.cso");
     auto ps_blob = load_shader_blob("resources/shaders/pixel/generic.cso");
     auto ps_color_blob = load_shader_blob("resources/shaders/pixel/color_only.cso");
-    assert(!vs_blob.empty() && !ps_blob.empty() && !ps_color_blob.empty());
+    auto vs_fallback_blob = load_shader_blob("resources/shaders/vertex/fallback.cso");
+    auto ps_fallback_blob = load_shader_blob("resources/shaders/pixel/fallback.cso");
+    
+    // create vertex shader
     hr = _device->CreateVertexShader(vs_blob.data(), vs_blob.size(), nullptr, &_vs);
     if (FAILED(hr)) {
         utils::log_error("CreateVertexShader failed: 0x%08X", hr);
+        return;
     }
+    
+    // create pixel shader
     hr = _device->CreatePixelShader(ps_blob.data(), ps_blob.size(), nullptr, &_ps);
     if (FAILED(hr)) {
         utils::log_error("CreatePixelShader failed: 0x%08X", hr);
+        return;
     }
+    
+    // create color-only pixel shader
     hr = _device->CreatePixelShader(ps_color_blob.data(), ps_color_blob.size(), nullptr, &_ps_color_only);
     if (FAILED(hr)) {
         utils::log_error("CreatePixelShader (color_only) failed: 0x%08X", hr);
+        return;
+    }
+    
+    // create fallback shaders (these should always work)
+    if (!vs_fallback_blob.empty()) {
+        hr = _device->CreateVertexShader(vs_fallback_blob.data(), vs_fallback_blob.size(), nullptr, &_vs_fallback);
+        if (FAILED(hr)) {
+            utils::log_warn("CreateVertexShader (fallback) failed: 0x%08X", hr);
+        }
+    }
+    
+    if (!ps_fallback_blob.empty()) {
+        hr = _device->CreatePixelShader(ps_fallback_blob.data(), ps_fallback_blob.size(), nullptr, &_ps_fallback);
+        if (FAILED(hr)) {
+            utils::log_warn("CreatePixelShader (fallback) failed: 0x%08X", hr);
+        }
     }
     
     // initialize current shader to generic shader
@@ -179,9 +204,12 @@ void d3d11_renderer::end_frame() {
 }
 
 void d3d11_renderer::draw_buffer(const core::draw_buffer* buf) {
-    if (!buf || buf->vertices.empty() || buf->indices.empty()) return;
+    if (!buf || buf->vertices.empty() || buf->indices.empty()) {
+        utils::log_warn("draw_buffer: buffer is empty or invalid");
+        return;
+    }
 
-    // 1. Create/upload vertex buffer
+    // Create single vertex and index buffer for all geometry
     D3D11_BUFFER_DESC vbDesc = {};
     vbDesc.Usage = D3D11_USAGE_DYNAMIC;
     vbDesc.ByteWidth = UINT(buf->vertices.size() * sizeof(core::vertex));
@@ -198,7 +226,6 @@ void d3d11_renderer::draw_buffer(const core::draw_buffer* buf) {
         return;
     }
 
-    // 2. Create/upload index buffer
     D3D11_BUFFER_DESC ibDesc = {};
     ibDesc.Usage = D3D11_USAGE_DYNAMIC;
     ibDesc.ByteWidth = UINT(buf->indices.size() * sizeof(uint32_t));
@@ -215,34 +242,125 @@ void d3d11_renderer::draw_buffer(const core::draw_buffer* buf) {
         return;
     }
 
-    // 3. Set shaders and input layout
+    // Set common state
     _context->IASetInputLayout(_input_layout.Get());
-    _context->VSSetShader(_vs.Get(), nullptr, 0);
-    // Set the current pixel shader
-    if (_current_ps) {
-        _context->PSSetShader(_current_ps, nullptr, 0);
-    }
-    // 4. Set buffers
     UINT stride = sizeof(core::vertex);
     UINT offset = 0;
     _context->IASetVertexBuffers(0, 1, vbo.GetAddressOf(), &stride, &offset);
     _context->IASetIndexBuffer(ibo.Get(), DXGI_FORMAT_R32_UINT, 0);
     _context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    // 5. Set texture and sampler (should be set before draw call)
-    // Use texture from draw buffer's texture stack if available
-    resources::tex current_tex = buf->current_texture();
-    if (current_tex) {
-        auto d3d_tex = std::dynamic_pointer_cast<d3d11_texture>(current_tex);
-        if (d3d_tex) {
-            ID3D11ShaderResourceView* srv = d3d_tex->srv();
-            _context->PSSetShaderResources(0, 1, &srv);
-        } else {
-            utils::log_warn("Failed to cast texture to d3d11_texture");
+    _context->PSSetSamplers(0, 1, _sampler.GetAddressOf());
+
+    size_t index_offset = 0;
+    for (const auto& cmd : buf->cmds) {
+        if (cmd.elem_count == 0) continue;
+
+        // Set shader based on command type
+        switch (cmd.type) {
+            case core::geometry_type::color_only:
+                _context->VSSetShader(_vs.Get(), nullptr, 0);
+                _context->PSSetShader(_ps_color_only.Get(), nullptr, 0);
+                break;
+                
+            case core::geometry_type::textured:
+                _context->VSSetShader(_vs.Get(), nullptr, 0);
+                _context->PSSetShader(_ps.Get(), nullptr, 0);
+                break;
+                
+            case core::geometry_type::font_atlas:
+                // Use generic shaders for font rendering
+                _context->VSSetShader(_vs.Get(), nullptr, 0);
+                _context->PSSetShader(_ps.Get(), nullptr, 0);
+                break;
+                
+            default:
+                // fallback to generic shaders
+                _context->VSSetShader(_vs.Get(), nullptr, 0);
+                _context->PSSetShader(_ps.Get(), nullptr, 0);
+                break;
+        }
+
+        // Bind appropriate texture based on command type
+        if (cmd.type == core::geometry_type::font_atlas) {
+            // For font commands, bind the font atlas texture
+            // utils::log_info("Processing font command: elem_count=%u, font_texture=%s", 
+            //                cmd.elem_count, cmd.font_texture ? "true" : "false");
+            
+            if (cmd.font_texture && !buf->font_stack().empty()) {
+                auto font = buf->font_stack().back();
+                if (font && font->get_atlas_srv()) {
+                    // ensure font atlas texture is updated with any new glyphs before binding
+                    // this is necessary for Unicode glyphs to display properly
+                    font->update_atlas_texture(_device.Get());
+                    
+                    // utils::log_info("Binding font atlas SRV for font");
+                    ID3D11ShaderResourceView* srv = font->get_atlas_srv();
+                    _context->PSSetShaderResources(0, 1, &srv);
+                } else {
+                    utils::log_warn("Font atlas SRV not available");
+                }
+            } else {
+                utils::log_warn("Font command but no font texture or empty font stack");
+            }
+        } else if (cmd.type == core::geometry_type::textured) {
+            // For textured commands, bind the current texture from stack
+            if (!buf->texture_stack().empty()) {
+                auto tex = buf->texture_stack().back();
+                if (tex) {
+                    // Get the D3D11 SRV from the texture
+                    ID3D11ShaderResourceView* srv = tex->get_srv();
+                    if (srv) {
+                        // utils::log_info("Binding texture SRV for textured command");
+                        _context->PSSetShaderResources(0, 1, &srv);
+                    } else {
+                        utils::log_warn("Texture SRV not available");
+                    }
+                }
+            }
+        }
+
+        // Draw this command's geometry
+        _context->DrawIndexed(cmd.elem_count, static_cast<UINT>(index_offset), 0);
+        index_offset += cmd.elem_count;
+    }
+}
+
+// RAII resource scope implementation
+d3d11_renderer::resource_scope::resource_scope(d3d11_renderer* renderer)
+    : _renderer(renderer), _previous_texture(nullptr), _previous_font(nullptr) {
+}
+
+d3d11_renderer::resource_scope::~resource_scope() {
+    // restore previous state
+    if (_renderer) {
+        if (_previous_texture) {
+            _renderer->set_texture(_previous_texture, 0);
+        }
+        // note: font binding restoration would need additional implementation
+    }
+}
+
+void d3d11_renderer::resource_scope::bind_texture(resources::tex texture) {
+    if (_renderer) {
+        _previous_texture = texture; // store current for restoration
+        _renderer->set_texture(texture, 0);
+    }
+}
+
+void d3d11_renderer::resource_scope::bind_font(std::shared_ptr<resources::font> font) {
+    if (_renderer && font) {
+        _previous_font = font; // store current for restoration
+        // bind font atlas texture
+
+        ID3D11ShaderResourceView* srv = font->get_atlas_srv();
+        if (&srv) {
+            _renderer->_context->PSSetShaderResources(0, 1, &srv);
         }
     }
-    _context->PSSetSamplers(0, 1, _sampler.GetAddressOf());
-    // 6. Draw
-    _context->DrawIndexed(UINT(buf->indices.size()), 0, 0);
+}
+
+std::unique_ptr<d3d11_renderer::resource_scope> d3d11_renderer::create_resource_scope() {
+    return std::make_unique<resource_scope>(this);
 }
 
 void d3d11_renderer::set_texture(resources::tex tex, uint32_t slot) {
@@ -257,11 +375,27 @@ void d3d11_renderer::set_texture(resources::tex tex, uint32_t slot) {
 
 void d3d11_renderer::set_pixel_shader(const std::string& shader_name) {
     if (shader_name == "color_only") {
-        _context->PSSetShader(_ps_color_only.Get(), nullptr, 0);
-        _current_ps = _ps_color_only.Get();
+        if (_ps_color_only) {
+            _context->PSSetShader(_ps_color_only.Get(), nullptr, 0);
+            _current_ps = _ps_color_only.Get();
+        } else {
+            utils::log_warn("color_only shader not available, using fallback");
+            if (_ps_fallback) {
+                _context->PSSetShader(_ps_fallback.Get(), nullptr, 0);
+                _current_ps = _ps_fallback.Get();
+            }
+        }
     } else {
-        _context->PSSetShader(_ps.Get(), nullptr, 0);
-        _current_ps = _ps.Get();
+        if (_ps) {
+            _context->PSSetShader(_ps.Get(), nullptr, 0);
+            _current_ps = _ps.Get();
+        } else {
+            utils::log_warn("generic shader not available, using fallback");
+            if (_ps_fallback) {
+                _context->PSSetShader(_ps_fallback.Get(), nullptr, 0);
+                _current_ps = _ps_fallback.Get();
+            }
+        }
     }
 }
 

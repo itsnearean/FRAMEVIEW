@@ -35,6 +35,28 @@ public:
     // draw manager access
     d3d11_draw_manager* draw_manager() { return _draw_manager.get(); }
 
+    // RAII wrapper for D3D11 resources
+    class resource_scope {
+    public:
+        resource_scope(d3d11_renderer* renderer);
+        ~resource_scope();
+        resource_scope(const resource_scope&) = delete;
+        resource_scope& operator=(const resource_scope&) = delete;
+        
+        // bind texture for this scope
+        void bind_texture(resources::tex texture);
+        // bind font for this scope
+        void bind_font(std::shared_ptr<resources::font> font);
+        
+    private:
+        d3d11_renderer* _renderer;
+        resources::tex _previous_texture;
+        std::shared_ptr<resources::font> _previous_font;
+    };
+    
+    // helper method for automatic resource management
+    std::unique_ptr<resource_scope> create_resource_scope();
+
 private:
     Microsoft::WRL::ComPtr<ID3D11Device> _device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> _context;
@@ -49,6 +71,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D11VertexShader> _vs;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> _ps;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> _ps_color_only;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> _ps_fallback;
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> _vs_fallback;
     Microsoft::WRL::ComPtr<ID3D11InputLayout> _input_layout;
     Microsoft::WRL::ComPtr<ID3D11SamplerState> _sampler;
     Microsoft::WRL::ComPtr<ID3D11Buffer> _matrix_cb;

@@ -45,11 +45,11 @@ public:
     virtual ~font() = default;
 
 #ifdef _WIN32
-    virtual bool load(ID3D11Device* device = nullptr);
-    virtual bool load_from_memory(ID3D11Device* device = nullptr);
+    virtual bool load(ID3D11Device* device = nullptr, resources::texture_dict* tex_dict = nullptr);
+    virtual bool load_from_memory(ID3D11Device* device = nullptr, resources::texture_dict* tex_dict = nullptr);
 #else
-    virtual bool load();
-    virtual bool load_from_memory();
+    virtual bool load(resources::texture_dict* tex_dict = nullptr);
+    virtual bool load_from_memory(resources::texture_dict* tex_dict = nullptr);
 #endif
 
     virtual void unload();
@@ -72,6 +72,12 @@ public:
     // fallback font chain
     void add_fallback(std::shared_ptr<font> fallback);
     const std::vector<std::shared_ptr<font>>& fallbacks() const { return _fallbacks; }
+    
+    // enhanced fallback system
+    std::shared_ptr<font> get_fallback_for_codepoint(uint32_t codepoint) const;
+    bool has_glyph_in_fallbacks(uint32_t codepoint) const;
+    void set_default_fallback(std::shared_ptr<font> fallback);
+    std::shared_ptr<font> get_default_fallback() const { return _default_fallback; }
 
     // dynamic glyph paging
     bool has_glyph(uint32_t codepoint) const;
@@ -83,7 +89,7 @@ public:
     const opentype_features& get_opentype_features() const { return _ot_features; }
 
     // static: load all fonts from resources/fonts
-    static std::vector<std::shared_ptr<font>> load_all_from_folder(const std::string& folder, float size, bool sdf = false, bool mcsdf = false);
+    static std::vector<std::shared_ptr<font>> load_all_from_folder(const std::string& folder, float size, bool sdf = false, bool mcsdf = false, resources::texture_dict* tex_dict = nullptr);
 
     resources::tex get_atlas_tex() const { return _atlas_tex; }
     int get_glyph_page(uint32_t codepoint) const; // get which page a glyph is on
@@ -115,6 +121,8 @@ protected:
     std::vector<std::shared_ptr<font>> _fallbacks;
     // opentype features
     opentype_features _ot_features;
+    // default fallback
+    std::shared_ptr<font> _default_fallback;
     // paging
     std::vector<uint32_t> _pending_glyphs;
     std::vector<std::vector<unsigned char>> _atlas_pages; // multiple atlas pages

@@ -12,6 +12,16 @@ namespace resources { struct font; }
 
 namespace core {
 
+// enhanced command system for unified buffer
+enum class geometry_type : uint8_t {
+    color_only,      // no texture, just vertex colors
+    textured,        // regular texture
+    font_atlas,      // font atlas texture (special handling)
+    scissor,         // scissor/clip operations
+    blur,            // blur effects
+    key_color        // color key operations
+};
+
 struct draw_command {
     uint32_t elem_count = 0;
     rect clip_rect;
@@ -21,9 +31,15 @@ struct draw_command {
     bool font_texture = false;
     bool native_texture = false;
     uint8_t blur_strength = 0;
-    uint8_t blur_pass_count = 0;
+    uint8_t pass_count = 0;
     color key_color;
     std::function<void(const draw_command*)> callback;
+    
+    geometry_type type = geometry_type::color_only;
+    
+    // shader selection hints
+    std::string shader_hint; // "color_only", "generic", "font", etc.
+    
     // matrix transform could be added here
 };
 
@@ -70,6 +86,20 @@ public:
     void pop_texture();
     resources::tex current_texture() const;
     
+    // Enhanced texture management with RAII
+    class texture_scope {
+    public:
+        texture_scope(draw_buffer* buffer, resources::tex texture);
+        ~texture_scope();
+        texture_scope(const texture_scope&) = delete;
+        texture_scope& operator=(const texture_scope&) = delete;
+    private:
+        draw_buffer* _buffer;
+    };
+    
+    // Helper method for automatic texture push/pop with RAII
+    std::unique_ptr<texture_scope> push_texture_scope(resources::tex texture);
+    
     // Helper method for automatic texture push/pop
     template<typename Func>
     void with_texture(resources::tex texture, Func&& func) {
@@ -80,8 +110,36 @@ public:
     
     // Clear texture stack
     void clear_texture_stack();
+    
+    // Get texture stack depth for debugging
+    size_t texture_stack_depth() const { return texture_stack_.size(); }
+    
+    // Validate texture stack state
+    bool is_texture_stack_valid() const;
 
-    // add more as needed
+    // Unified geometry methods that automatically handle command creation
+    void add_geometry_color_only(const std::vector<vertex>& vertices, const std::vector<uint32_t>& indices);
+    void add_geometry_textured(const std::vector<vertex>& vertices, const std::vector<uint32_t>& indices, resources::tex texture);
+    void add_geometry_font(const std::vector<vertex>& vertices, const std::vector<uint32_t>& indices, std::shared_ptr<resources::font> font);
+    
+    // Command management
+    void begin_command(geometry_type type, const std::string& shader_hint = "");
+    void end_command();
+    
+    // Get current command for modification
+    draw_command* current_command();
+    
+    // Clear all geometry and commands
+    void clear_all();
+    
+    // Get rendering statistics
+    size_t command_count() const { return cmds.size(); }
+    size_t total_vertex_count() const { return vertices.size(); }
+    size_t total_index_count() const { return indices.size(); }
+
+    std::vector<std::shared_ptr<resources::font>> font_stack() const { return font_stack_; }
+    std::vector<resources::tex> texture_stack() const { return texture_stack_; }
+
 private:
     std::vector<std::shared_ptr<resources::font>> font_stack_;
     std::vector<resources::tex> texture_stack_;

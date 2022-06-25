@@ -28,12 +28,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int main() {
-
-    // auto consola = std::make_shared<resources::font>("C:\\Windows\\Fonts\\consola.ttf", 32.f);
-    // auto trebuchetMS = std::make_shared<resources::font>("resources\\fonts\\trebuchetMS.ttf", 32.f);
-    // auto notoSans = std::make_shared<resources::font>("resources\\fonts\\NotoSans-VariableFont_wdth,wght.ttf", 32.f);
-    auto notoSansSC = std::make_shared<resources::font>("resources\\fonts\\NotoSansSC-VariableFont_wght.ttf", 32.f);
-
     // create window
     WNDCLASSW wc = {0};
     wc.lpfnWndProc = WindowProc;
@@ -58,14 +52,30 @@ int main() {
     renderer.initialize(1280, 720, hwnd);
 
     // load fonts (now renderer is available)
-    //consola->load(renderer.device());
-    //trebuchetMS->load(renderer.device());
-    //notoSans->load(renderer.device());
-    notoSansSC->load(renderer.device());
-    // trebuchetMS->add_fallback(notoSans);
-    // notoSans->add_fallback(notoSansSC);
-    // notoSansSC->add_fallback(consola);
+    // auto consola = std::make_shared<resources::font>("C:\\Windows\\Fonts\\consola.ttf", 32.f);
+    // auto trebuchetMS = std::make_shared<resources::font>("resources\\fonts\\trebuchetMS.ttf", 32.f);
+    auto notoSans = std::make_shared<resources::font>("resources\\fonts\\NotoSans-VariableFont_wdth,wght.ttf", 32.f);
+    auto notoSansSC = std::make_shared<resources::font>("resources\\fonts\\NotoSansSC-VariableFont_wght.ttf", 32.f);
+
+    // load fonts with texture dictionary
+    // consola->load(renderer.device(), renderer.texture_dict());
+    // trebuchetMS->load(renderer.device(), renderer.texture_dict());
+    notoSans->load(renderer.device(), renderer.texture_dict());
+    notoSansSC->load(renderer.device(), renderer.texture_dict());
     
+    // set up fallback font chain
+    notoSansSC->add_fallback(notoSans);
+    // notoSans->add_fallback(trebuchetMS);
+    // trebuchetMS->add_fallback(consola);
+    
+    // set default fallback for any font that doesn't have specific fallbacks
+    auto default_fallback = std::make_shared<resources::font>("C:\\Windows\\Fonts\\arial.ttf", 32.f);
+    default_fallback->load(renderer.device(), renderer.texture_dict());
+    
+    notoSansSC->set_default_fallback(default_fallback);
+    notoSans->set_default_fallback(default_fallback);
+    // trebuchetMS->set_default_fallback(default_fallback);
+    // consola->set_default_fallback(default_fallback);
 
 
     // create a test texture (checkerboard)
@@ -105,16 +115,10 @@ int main() {
 
 
 
-    // create draw manager and buffers
+    // create draw manager and unified buffer
     auto* draw_mgr = renderer.draw_manager();
-    size_t buffer_id = draw_mgr->register_buffer(0);
-    auto* buf = draw_mgr->get_buffer(buffer_id);
-    // create a buffer for textured geometry
-    size_t textured_buffer_id = draw_mgr->register_buffer(2);
-    auto* textured_buf = draw_mgr->get_buffer(textured_buffer_id);
-    // create a second buffer for text
-    size_t text_buffer_id = draw_mgr->register_buffer(1);
-    auto* text_buf = draw_mgr->get_buffer(text_buffer_id);
+    size_t unified_buffer_id = draw_mgr->register_buffer(0);
+    auto* unified_buf = draw_mgr->get_buffer(unified_buffer_id);
 
     MSG msg = {};
     bool running = true;
@@ -125,92 +129,132 @@ int main() {
             DispatchMessage(&msg);
         }
 
-        // clear buffers for new frame
-        buf->vertices.clear();
-        buf->indices.clear();
-        textured_buf->vertices.clear();
-        textured_buf->indices.clear();
-        // clear texture stack for textured buffer
-        textured_buf->clear_texture_stack();
-        text_buf->vertices.clear();
-        text_buf->indices.clear();
+        // clear unified buffer for new frame
+        unified_buf->clear_all();
+        
+        // ensure texture stack is clean for this frame
+        if (unified_buf->texture_stack_depth() > 0) {
+            utils::log_warn("Texture stack not empty at frame start, clearing: depth=%zu", unified_buf->texture_stack_depth());
+            unified_buf->clear_texture_stack();
+        }
 
         // colored quad (non-textured)
-        buf->prim_rect_multi_color({100, 100}, {300, 300},
+        unified_buf->prim_rect_multi_color({100, 100}, {300, 300},
             core::color{1.0f, 0.0f, 0.0f, 1.0f},
             core::color{0.0f, 1.0f, 0.0f, 1.0f},
             core::color{0.0f, 0.0f, 1.0f, 1.0f},
             core::color{1.0f, 1.0f, 0.0f, 1.0f});
 
-        // textured quad using texture stack
-        textured_buf->push_texture(tex);
-        // calculate quad size to maintain texture aspect ratio
-        float quad_width = 200.0f;  // Base width
-        float quad_height = quad_width * (float)texture_height / (float)texture_width;  // Maintain aspect ratio
-        textured_buf->prim_rect_uv({350, 100}, {350 + quad_width, 100 + quad_height}, {0, 0}, {1, 1}, core::pack_color_abgr({1, 1, 1, 1}));
- 
+        // demonstrate new RAII texture management
+        {
+            auto texture_scope = unified_buf->push_texture_scope(tex);
+
+            float quad_width = 200.0f;  // Base width
+            float quad_height = quad_width * (float)texture_height / (float)texture_width;  // Maintain aspect ratio
+
+            // texture will be automatically popped when scope ends
+            unified_buf->prim_rect_uv({350, 100}, {350 + quad_width, 100 + quad_height}, {0, 0}, {1, 1}, core::pack_color_abgr({1, 1, 1, 1}));
+        } // texture automatically popped here
+
+        
+        // demonstrate texture stack validation
+        // if (!unified_buf->is_texture_stack_valid()) {
+        //     utils::log_warn("Texture stack validation failed");
+        // }
+            
         // triangle
-        buf->triangle_filled({600, 300}, {700, 100}, {800, 300},
+        unified_buf->triangle_filled({600, 300}, {700, 100}, {800, 300},
             core::pack_color_abgr({0, 1, 0, 1}),
             core::pack_color_abgr({0, 0, 1, 1}),
             core::pack_color_abgr({1, 1, 0, 1}));
             
         // n-gon
-        buf->n_gon({950, 200}, 100, 7, core::pack_color_abgr({0.35f, 0.65f, 0, 1}));
+        unified_buf->n_gon({950, 200}, 100, 7, core::pack_color_abgr({0.35f, 0.65f, 0, 1}));
 
         // line
-        buf->line({100, 350}, {300, 400}, core::pack_color_abgr({1, 1, 1, 1}), core::pack_color_abgr({1, 0, 1, 1}), 4.0f);
+        unified_buf->line({100, 350}, {300, 400}, core::pack_color_abgr({1, 1, 1, 1}), core::pack_color_abgr({1, 0, 1, 1}), 4.0f);
 
         // polyline
         std::vector<core::position> poly_points = {{350, 350}, {400, 400}, {450, 350}, {500, 400}, {550, 350}};
-        buf->poly_line(poly_points, core::pack_color_abgr({0, 1, 1, 1}), 3.0f, false);
+        unified_buf->poly_line(poly_points, core::pack_color_abgr({0, 1, 1, 1}), 3.0f, false);
 
         // filled circle
-        buf->circle_filled({700, 400}, 50, core::pack_color_abgr({1, 0, 0, 1}), core::pack_color_abgr({1, 1, 0, 1}), 48);
+        unified_buf->circle_filled({700, 400}, 50, core::pack_color_abgr({1, 0, 0, 1}), core::pack_color_abgr({1, 1, 0, 1}), 48);
 
-        // text
-        text_buf->push_font(notoSansSC);
+        // text with fallback font demonstration
+        unified_buf->push_font(notoSansSC);
         
-        text_buf->text("Hello, FRAMEVIEW!", {100, 500}, core::pack_color_abgr({1, 1, 1, 1}));
-        text_buf->text("Unicode test | 你好世界 | にちは", {100, 550}, core::pack_color_abgr({1, 1, 0, 1}));
-        text_buf->pop_font();
+        unified_buf->text("Hello, FRAMEVIEW!", {100, 500}, core::pack_color_abgr({1, 1, 1, 1}));
+        unified_buf->text("Unicode test | 你好世界 | にちは", {100, 550}, core::pack_color_abgr({1, 1, 0, 1}));
         
-        // update atlas texture after text rendering to include any new glyphs
-        if (notoSansSC) {
-            notoSansSC->update_atlas_texture(renderer.device());
-        }
-
+        // test fallback fonts with characters that might not be in the primary font (also aren't in the current nor the default fallback :D)
+        unified_buf->text("Fallback test: 🚀🎮🌟", {100, 600}, core::pack_color_abgr({0, 1, 1, 1}));
+        unified_buf->text("Mixed languages: こんにちは Hello 안녕하세요", {100, 650}, core::pack_color_abgr({1, 0.5f, 1, 1}));
+        
+        unified_buf->pop_font();
+        
+        // test different fonts to show fallback system
+        // unified_buf->push_font(trebuchetMS);
+        // unified_buf->text("Trebuchet MS font with fallbacks", {100, 700}, core::pack_color_abgr({0.5f, 1, 0.5f, 1}));
+        // unified_buf->pop_font();
+        
         renderer.begin_frame();
-        renderer.clear(core::color{0.1f, 0.1f, 0.2f, 1.0f});
+        renderer.clear(core::color{0.1f, 0.2f, 0.3f, 1.0f});
         
-        // draw non-textured geometry buffer (color-only shader)
-        if (buf && !buf->vertices.empty() && !buf->indices.empty()) {
-            renderer.set_pixel_shader("color_only");
-            renderer.draw_buffer(buf);
+        // draw unified buffer (handles all geometry types automatically)
+        if (unified_buf && !unified_buf->vertices.empty() && !unified_buf->indices.empty()) {
+            // utils::log_info("Rendering unified buffer: %zu commands, %zu vertices, %zu indices", 
+            //                unified_buf->command_count(), unified_buf->total_vertex_count(), unified_buf->total_index_count());
+            renderer.draw_buffer(unified_buf);
         } else {
-            utils::log_warn("Geometry buffer empty: buf=%p, vertices=%zu, indices=%zu", 
-                   buf, buf ? buf->vertices.size() : 0, buf ? buf->indices.size() : 0);
+            utils::log_warn("Unified buffer empty: buf=%p, vertices=%zu, indices=%zu", 
+                   unified_buf, unified_buf ? unified_buf->vertices.size() : 0, unified_buf ? unified_buf->indices.size() : 0);
         }
         
-        // draw textured geometry buffer with texture (generic shader)
-        if (textured_buf && !textured_buf->vertices.empty() && 
-        !textured_buf->indices.empty()) {
-            renderer.set_pixel_shader("generic");
-            renderer.draw_buffer(textured_buf);
-        }
+        // demonstrate error handling and texture stack safety
+        // utils::log_info("=== Texture Stack Demo ===");
+        // utils::log_info("Unified buffer texture stack depth: %zu", unified_buf->texture_stack_depth());
+        
+        // demonstrate safe texture operations
+        // unified_buf->push_texture(nullptr); // this should be safely ignored
+        // utils::log_info("After pushing null texture, stack depth: %zu", unified_buf->texture_stack_depth());
+        
+        // demonstrate RAII texture management
+        // {
+        //     auto scope1 = unified_buf->push_texture_scope(tex);
+        //     utils::log_info("Inside scope 1, texture stack depth: %zu", unified_buf->texture_stack_depth());
+            
+        //     {
+        //         auto scope2 = unified_buf->push_texture_scope(tex);
+        //         utils::log_info("Inside scope 2, texture stack depth: %zu", unified_buf->texture_stack_depth());
+        //     } // scope2 ends, texture popped
+            
+        //     utils::log_info("After scope 2 ends, texture stack depth: %zu", unified_buf->texture_stack_depth());
+        // } // scope1 ends, texture popped
+        
+        // utils::log_info("After all scopes end, texture stack depth: %zu", unified_buf->texture_stack_depth());
+        // utils::log_info("=== End Texture Stack Demo ===");
 
-        // // draw text buffer with font atlas
-        if (notoSansSC && notoSansSC->get_atlas_srv() && text_buf && !text_buf->vertices.empty() && !text_buf->indices.empty()) {
-
-            renderer.set_pixel_shader("generic");
-            // bind the font atlas SRV directly instead of using texture handle
-            renderer.set_font_atlas(notoSansSC->get_atlas_srv());
-            renderer.draw_buffer(text_buf);
-        } else {
-            utils::log_warn("Skipping text draw: notoSansSC=%p, atlas_srv=%p, text_buf=%p, vertices=%zu, indices=%zu",
-                   notoSansSC.get(), notoSansSC ? notoSansSC->get_atlas_srv() : nullptr, text_buf,
-                   text_buf ? text_buf->vertices.size() : 0, text_buf ? text_buf->indices.size() : 0);
-        }
+        // demonstrate fallback shader system
+        // utils::log_info("=== Shader System Demo ===");
+        
+        // test normal shader loading
+        // renderer.set_pixel_shader("generic");
+        // utils::log_info("Set generic shader successfully");
+        
+        // test color-only shader
+        // renderer.set_pixel_shader("color_only");
+        // utils::log_info("Set color_only shader successfully");
+        
+        // test fallback behavior (this would normally fail if shaders weren't loaded)
+        // renderer.set_pixel_shader("generic");
+        // utils::log_info("Shader system demo completed");
+        // utils::log_info("=== End Shader System Demo ===");
+        
+        // memory tracking and leak detection
+        // if (renderer.texture_dict()) {
+        //     renderer.texture_dict()->log_memory_stats();
+        // }
         
         renderer.end_frame();
     }

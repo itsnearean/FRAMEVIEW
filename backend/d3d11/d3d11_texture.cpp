@@ -13,6 +13,16 @@ d3d11_texture::d3d11_texture(ID3D11Device* device, uint32_t width, uint32_t heig
     }
 }
 
+d3d11_texture::d3d11_texture(ID3D11Device* device, ID3D11Texture2D* existing_texture, ID3D11ShaderResourceView* existing_srv)
+    : _device(device), _texture(existing_texture), _srv(existing_srv) {
+    if (existing_texture) {
+        D3D11_TEXTURE2D_DESC desc;
+        existing_texture->GetDesc(&desc);
+        _width = desc.Width;
+        _height = desc.Height;
+    }
+}
+
 d3d11_texture::~d3d11_texture() {
     invalidate();
 }
@@ -79,6 +89,16 @@ bool d3d11_texture::set_data(const uint8_t* data, uint32_t width, uint32_t heigh
     return true;
 }
 
+void d3d11_texture::bind(uint32_t slot) {
+    // This method is deprecated - use get_srv() instead
+    // The renderer should handle actual binding
+}
+
+void d3d11_texture::unbind() {
+    // This method is deprecated - use get_srv() instead
+    // The renderer should handle actual unbinding
+}
+
 bool d3d11_texture::apply_changes() {
     // this function should queue the texture for update
     // user must call process_update_queue on the dict with a valid context
@@ -142,6 +162,13 @@ resources::tex d3d11_texture_dict::create_texture(uint32_t width, uint32_t heigh
     return tex;
 }
 
+resources::tex d3d11_texture_dict::create_texture_from_d3d11(ID3D11Texture2D* d3d_texture, ID3D11ShaderResourceView* srv) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    auto tex = std::make_shared<d3d11_texture>(_device.Get(), d3d_texture, srv);
+    _textures.push_back(tex);
+    return tex;
+}
+
 void d3d11_texture_dict::destroy_texture(resources::tex tex) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = std::remove(_textures.begin(), _textures.end(), tex);
@@ -170,6 +197,23 @@ void d3d11_texture_dict::clear_textures() {
     _textures.clear();
     std::lock_guard<std::mutex> qlock(_update_queue_mutex);
     _update_queue.clear();
+}
+
+void d3d11_texture_dict::log_memory_stats() const {
+    std::lock_guard<std::mutex> lock(_mutex);
+    std::lock_guard<std::mutex> qlock(_update_queue_mutex);
+    
+    utils::log_info("Texture memory stats: textures=%zu, update_queue=%zu", 
+                   _textures.size(), _update_queue.size());
+    
+    // log individual texture info
+    for (size_t i = 0; i < _textures.size(); ++i) {
+        if (auto tex = std::dynamic_pointer_cast<d3d11_texture>(_textures[i])) {
+            utils::log_info("  Texture[%zu]: %ux%u, dirty=%s", 
+                           i, tex->width(), tex->height(), 
+                           tex->_dirty ? "true" : "false");
+        }
+    }
 }
 
 void d3d11_texture_dict::pre_reset() {

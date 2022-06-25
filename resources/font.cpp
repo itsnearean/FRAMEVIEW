@@ -46,11 +46,11 @@ font::font(const void* data, size_t size, float pixel_height, bool sdf, bool mcs
     : _path(), _size(pixel_height), _from_memory(true), _font_data(static_cast<const unsigned char*>(data), static_cast<const unsigned char*>(data) + size), _sdf(false), _mcsdf(false) {}
 
 #ifdef _WIN32
-bool font::load(ID3D11Device* device) {
+bool font::load(ID3D11Device* device, resources::texture_dict* tex_dict) {
 #else
-bool font::load() {
+bool font::load(resources::texture_dict* tex_dict) {
 #endif
-    if (_from_memory) return load_from_memory();
+    if (_from_memory) return load_from_memory(device, tex_dict);
     
     // initialize freetype
     if (FT_Init_FreeType(&_ft_library)) {
@@ -142,18 +142,20 @@ bool font::load() {
         srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
         srvDesc.Texture2D.MipLevels = 1;
         device_to_use->CreateShaderResourceView(tex.Get(), &srvDesc, &_atlas_srv);
+        
+        // create proper resources::tex handle using texture dictionary
+        if (tex_dict) {
+            _atlas_tex = tex_dict->create_texture_from_d3d11(tex.Get(), _atlas_srv.Get());
+        }
     }
-
-    // TODO: create proper resources::tex handle here
-    // _atlas_tex = create_texture_handle(tex.Get());
 #endif
     return true;
 }
 
 #ifdef _WIN32
-bool font::load_from_memory(ID3D11Device* device) {
+bool font::load_from_memory(ID3D11Device* device, resources::texture_dict* tex_dict) {
 #else
-bool font::load_from_memory() {
+bool font::load_from_memory(resources::texture_dict* tex_dict) {
 #endif
     if (FT_Init_FreeType(&_ft_library)) {
         utils::log_error("Could not init FreeType");
@@ -309,6 +311,14 @@ void font::update_atlas_texture(ID3D11Device* device) {
         srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
         srvDesc.Texture2D.MipLevels = 1;
         device->CreateShaderResourceView(tex.Get(), &srvDesc, &_atlas_srv);
+        
+        // update the texture handle if we have a texture dictionary
+        // note: this requires the font to have been loaded with a texture dictionary
+        // for now, we'll keep the existing handle and just update the SRV
+        if (_atlas_tex) {
+            // the texture handle should already exist, so we just need to update the underlying D3D11 texture
+            // for now, we'll keep the existing handle and just update the SRV
+        }
     } else {
         utils::log_error("Failed to update atlas texture: 0x%08X", hr);
     }
@@ -367,7 +377,52 @@ int font::get_kerning(uint32_t left, uint32_t right) {
 }
 
 void font::add_fallback(std::shared_ptr<font> fallback) {
-    if (fallback) _fallbacks.push_back(fallback);
+    if (fallback && fallback.get() != this) {
+        _fallbacks.push_back(fallback);
+    }
+}
+
+std::shared_ptr<font> font::get_fallback_for_codepoint(uint32_t codepoint) const {
+    // first check if we have the glyph
+    if (has_glyph(codepoint)) {
+        return nullptr; // no fallback needed
+    }
+    
+    // check fallback fonts in order
+    for (const auto& fallback : _fallbacks) {
+        if (fallback && fallback->has_glyph(codepoint)) {
+            return fallback;
+        }
+    }
+    
+    // check default fallback
+    if (_default_fallback && _default_fallback->has_glyph(codepoint)) {
+        return _default_fallback;
+    }
+    
+    return nullptr;
+}
+
+bool font::has_glyph_in_fallbacks(uint32_t codepoint) const {
+    // check fallback fonts
+    for (const auto& fallback : _fallbacks) {
+        if (fallback && fallback->has_glyph(codepoint)) {
+            return true;
+        }
+    }
+    
+    // check default fallback
+    if (_default_fallback && _default_fallback->has_glyph(codepoint)) {
+        return true;
+    }
+    
+    return false;
+}
+
+void font::set_default_fallback(std::shared_ptr<font> fallback) {
+    if (fallback && fallback.get() != this) {
+        _default_fallback = fallback;
+    }
 }
 
 bool font::has_glyph(uint32_t codepoint) const {
@@ -491,7 +546,7 @@ void font::set_opentype_features(const opentype_features& features) {
     // real implementation: configure shaping engine (e.g., harfbuzz) with these features
 }
 
-std::vector<std::shared_ptr<font>> font::load_all_from_folder(const std::string& folder, float size, bool sdf, bool mcsdf) {
+std::vector<std::shared_ptr<font>> font::load_all_from_folder(const std::string& folder, float size, bool sdf, bool mcsdf, resources::texture_dict* tex_dict) {
     std::vector<std::shared_ptr<font>> fonts;
     namespace fs = std::filesystem;
     for (const auto& entry : fs::directory_iterator(folder)) {
@@ -500,7 +555,11 @@ std::vector<std::shared_ptr<font>> font::load_all_from_folder(const std::string&
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         if (ext == ".ttf" || ext == ".otf") {
             auto f = std::make_shared<font>(entry.path().string().c_str(), size, sdf, mcsdf);
-            if (f->load()) fonts.push_back(f);
+#ifdef _WIN32
+            if (f->load(nullptr, tex_dict)) fonts.push_back(f);
+#else
+            if (f->load(tex_dict)) fonts.push_back(f);
+#endif
         }
     }
     return fonts;

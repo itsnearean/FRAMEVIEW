@@ -3,7 +3,7 @@
 ## 🚨 **CRITICAL FIXES & BUGS**
 
 ### Core Rendering Issues
-- [ ] **Fix texture stretching issue** - Current texture rendering has aspect ratio problems
+- [x] **Fix texture stretching issue** - Current texture rendering has aspect ratio problems
     - Issue seems to have disappeared. Will continue to monitor.
 - [x] **Fix draw_manager rendering** - `d3d11_draw_manager::draw()` has incomplete implementation (lines 200-230)
 - [x] **Fix font fallback system** - No default font fallback when no font is set (line 177 in draw_buffer.cpp)
@@ -56,6 +56,7 @@
 - [ ] **Add compute shader support** - For GPU compute operations
 
 ### 2D Rendering Enhancements
+- [x] **Add rounded quad support** - Optional rounding parameter for all quad drawing methods (0.0 = no rounding, 0.5 = 50% rounding)
 - [ ] **Add sprite batching** - Efficient 2D sprite rendering
 - [ ] **Add UI system** - Buttons, sliders, text input
 - [ ] **Add animation system** - Keyframe animation, tweening

@@ -59,11 +59,11 @@ public:
         indices.reserve(indices.size() + idx_count);
     }
     
-    void prim_rect(const position& a, const position& c, const color& col);
-    void prim_rect_filled(const position& a, const position& c, const color& col);
+    void prim_rect(const position& a, const position& c, const color& col, float rounding = 0.0f);
+    void prim_rect_filled(const position& a, const position& c, const color& col, float rounding = 0.0f);
     void prim_rect_multi_color(const position& a, const position& c, 
                               const color& col_top_left, const color& col_top_right,
-                              const color& col_bot_left, const color& col_bot_right);
+                              const color& col_bot_left, const color& col_bot_right, float rounding = 0.0f);
     
     void set_blur(uint8_t strength, uint8_t passes = 1);
     void set_key_color(const color& col);
@@ -73,7 +73,7 @@ public:
     void poly_line(const std::vector<position>& points, uint32_t color, float thickness = 1.0f, bool closed = false);
     void triangle_filled(const position& a, const position& b, const position& c, uint32_t color_a, uint32_t color_b, uint32_t color_c);
     void circle_filled(const position& center, float radius, uint32_t color_inner, uint32_t color_outer, int segments = 32);
-    void prim_rect_uv(const position& a, const position& c, const position& uv_a, const position& uv_c, uint32_t color);
+    void prim_rect_uv(const position& a, const position& c, const position& uv_a, const position& uv_c, uint32_t color, float rounding = 0.0f);
     void n_gon(const position& center, float radius, int sides, uint32_t color);
     void text(const std::string& str, const position& pos, uint32_t color); // stub
     
@@ -116,6 +116,11 @@ public:
     
     // Validate texture stack state
     bool is_texture_stack_valid() const;
+
+    // Helper method for generating rounded quad geometry
+    void generate_rounded_quad_geometry(const position& a, const position& c, float rounding,
+                                       std::vector<vertex>& vertices, std::vector<uint32_t>& indices,
+                                       uint32_t color, const position& uv_a = {0, 0}, const position& uv_c = {1, 1});
 
     // Unified geometry methods that automatically handle command creation
     void add_geometry_color_only(const std::vector<vertex>& vertices, const std::vector<uint32_t>& indices);

@@ -1,52 +1,346 @@
 #include "draw_buffer.h"
 #include <cmath>
 #include <string>
+#include <algorithm>
 #include "../resources/font.h"
 #include "../utils/logger.h"
 #include <stack>
+#include "../math/constants.h"
 
 namespace core {
 
-void draw_buffer::prim_rect(const position& a, const position& c, const color& col) {
+// Helper function to generate rounded quad geometry
+void draw_buffer::generate_rounded_quad_geometry(const position& a, const position& c, float rounding,
+                                               std::vector<vertex>& vertices, std::vector<uint32_t>& indices,
+                                               uint32_t color, const position& uv_a, const position& uv_c) {
+    if (rounding <= 0.0f) {
+        // no rounding, generate regular quad
+        vertices.push_back(core::vertex(a.x, a.y, 0, color, uv_a.x, uv_a.y)); // top-left
+        vertices.push_back(core::vertex(c.x, a.y, 0, color, uv_c.x, uv_a.y)); // top-right
+        vertices.push_back(core::vertex(c.x, c.y, 0, color, uv_c.x, uv_c.y)); // bottom-right
+        vertices.push_back(core::vertex(a.x, c.y, 0, color, uv_a.x, uv_c.y)); // bottom-left
+        
+        // add indices for 2 triangles (filled quad)
+        indices.push_back(0);
+        indices.push_back(1);
+        indices.push_back(2);
+        indices.push_back(0);
+        indices.push_back(2);
+        indices.push_back(3);
+        return;
+    }
+    
+    // calculate corner radius (clamp to prevent overlapping)
+    float width = c.x - a.x;
+    float height = c.y - a.y;
+    float max_radius = (width < height ? width : height) * 0.5f;
+    float radius = max_radius * rounding;
+    
+    // determine number of segments for corners (more segments = smoother)
+    int segments = static_cast<int>((32.0f > radius * 0.5f ? 32.0f : radius * 0.5f));
+    
+    // ImGui-style 9-slice approach: center rect + 4 corners + 4 edges
+    uint32_t base_vertex = static_cast<uint32_t>(vertices.size());
+    
+    // Store corner vertex indices for later use
+    struct corner_info {
+        uint32_t center_vertex;
+        uint32_t first_arc_vertex;
+        uint32_t last_arc_vertex;
+    };
+    std::vector<corner_info> corners;
+    
+    // 1. Center rectangle (no rounding)
+    if (width > 2 * radius && height > 2 * radius) {
+        // top-left, top-right, bottom-right, bottom-left of center
+        vertices.push_back(core::vertex(a.x + radius, a.y + radius, 0, color, uv_a.x, uv_a.y));
+        vertices.push_back(core::vertex(c.x - radius, a.y + radius, 0, color, uv_c.x, uv_a.y));
+        vertices.push_back(core::vertex(c.x - radius, c.y - radius, 0, color, uv_c.x, uv_c.y));
+        vertices.push_back(core::vertex(a.x + radius, c.y - radius, 0, color, uv_a.x, uv_c.y));
+        
+        // center rectangle indices
+        uint32_t center_base = base_vertex;
+        indices.push_back(center_base + 0);
+        indices.push_back(center_base + 1);
+        indices.push_back(center_base + 2);
+        indices.push_back(center_base + 0);
+        indices.push_back(center_base + 2);
+        indices.push_back(center_base + 3);
+        
+        base_vertex += 4;
+    }
+    
+    float angle_step = 0.5f * math::PI<float> / segments;
+
+    // 2. Top-left corner (arc from 180° to 270°)
+    if (radius > 0) {
+        uint32_t corner_base = base_vertex;
+    
+        // Center of the arc (used for triangle fan)
+        vertices.push_back(core::vertex(a.x + radius, a.y + radius, 0, color, uv_a.x, uv_a.y));
+    
+        float start_angle = math::PI<float>;
+    
+        for (int i = 0; i <= segments; ++i) {
+            float angle = start_angle + i * angle_step;
+            float x = a.x + radius + radius * std::cos(angle);
+            float y = a.y + radius + radius * std::sin(angle);
+    
+            // UV interpolation
+            float u = (x - a.x) / width;
+            float v = (y - a.y) / height;
+            u = uv_a.x + u * (uv_c.x - uv_a.x);
+            v = uv_a.y + v * (uv_c.y - uv_a.y);
+    
+            vertices.push_back(core::vertex(x, y, 0, color, u, v));
+        }
+        
+        // Triangle fan indices
+        for (int i = 1; i <= segments; ++i) {
+            indices.push_back(corner_base);
+            indices.push_back(corner_base + i);
+            indices.push_back(corner_base + i + 1);
+        }
+        
+        // Store corner info: center, first arc vertex, last arc vertex
+        corners.push_back({corner_base, corner_base + 1, corner_base + segments});
+    
+        base_vertex += segments + 2;
+    }
+    
+    // 3. Top-right corner (arc from 270° to 0°)
+    if (radius > 0) {
+        uint32_t corner_base = base_vertex;
+        vertices.push_back(core::vertex(c.x - radius, a.y + radius, 0, color, uv_c.x, uv_a.y));
+    
+        float start_angle = 1.5f * math::PI<float>; // 270°
+    
+        for (int i = 0; i <= segments; ++i) {
+            float angle = start_angle + i * angle_step;
+            float x = c.x - radius + radius * std::cos(angle);
+            float y = a.y + radius + radius * std::sin(angle);
+    
+            float u = (x - a.x) / width;
+            float v = (y - a.y) / height;
+            u = uv_a.x + u * (uv_c.x - uv_a.x);
+            v = uv_a.y + v * (uv_c.y - uv_a.y);
+    
+            vertices.push_back(core::vertex(x, y, 0, color, u, v));
+        }
+        
+        for (int i = 1; i <= segments; ++i) {
+            indices.push_back(corner_base);
+            indices.push_back(corner_base + i);
+            indices.push_back(corner_base + i + 1);
+        }
+        
+        corners.push_back({corner_base, corner_base + 1, corner_base + segments});
+    
+        base_vertex += segments + 2;
+    }
+    
+    // 4. Bottom-right corner (arc from 0° to 90°)
+    if (radius > 0) {
+        uint32_t corner_base = base_vertex;
+        vertices.push_back(core::vertex(c.x - radius, c.y - radius, 0, color, uv_c.x, uv_c.y));
+    
+        float start_angle = 0.0f; // 0°
+    
+        for (int i = 0; i <= segments; ++i) {
+            float angle = start_angle + i * angle_step;
+            float x = c.x - radius + radius * std::cos(angle);
+            float y = c.y - radius + radius * std::sin(angle);
+    
+            float u = (x - a.x) / width;
+            float v = (y - a.y) / height;
+            u = uv_a.x + u * (uv_c.x - uv_a.x);
+            v = uv_a.y + v * (uv_c.y - uv_a.y);
+    
+            vertices.push_back(core::vertex(x, y, 0, color, u, v));
+        }
+        
+        for (int i = 1; i <= segments; ++i) {
+            indices.push_back(corner_base);
+            indices.push_back(corner_base + i);
+            indices.push_back(corner_base + i + 1);
+        }
+        
+        corners.push_back({corner_base, corner_base + 1, corner_base + segments});
+    
+        base_vertex += segments + 2;
+    }
+    
+    // 5. Bottom-left corner (arc from 90° to 180°)
+    if (radius > 0) {
+        uint32_t corner_base = base_vertex;
+        vertices.push_back(core::vertex(a.x + radius, c.y - radius, 0, color, uv_a.x, uv_c.y));
+    
+        float start_angle = 0.5f * math::PI<float>; // 90°
+    
+        for (int i = 0; i <= segments; ++i) {
+            float angle = start_angle + i * angle_step;
+            float x = a.x + radius + radius * std::cos(angle);
+            float y = c.y - radius + radius * std::sin(angle);
+    
+            float u = (x - a.x) / width;
+            float v = (y - a.y) / height;
+            u = uv_a.x + u * (uv_c.x - uv_a.x);
+            v = uv_a.y + v * (uv_c.y - uv_a.y);
+    
+            vertices.push_back(core::vertex(x, y, 0, color, u, v));
+        }
+    
+        for (int i = 1; i <= segments; ++i) {
+            indices.push_back(corner_base);
+            indices.push_back(corner_base + i);
+            indices.push_back(corner_base + i + 1);
+        }
+        
+        corners.push_back({corner_base, corner_base + 1, corner_base + segments});
+    
+        base_vertex += segments + 2;
+    }
+    
+    // 6. Top edge strip (connects top-left and top-right corners)
+    if (radius > 0 && corners.size() >= 2) {
+
+        uint32_t edge_base = base_vertex;
+
+        // left and right edge vertices
+        vertices.push_back(core::vertex(a.x + radius, a.y, 0, color, uv_a.x, uv_a.y));
+        vertices.push_back(core::vertex(c.x - radius, a.y, 0, color, uv_c.x, uv_a.y));
+
+        // connect to corners using stored corner info
+        uint32_t tlc = corners[0].center_vertex;  // top-left corner center vertex
+        uint32_t trc = corners[1].center_vertex; // top-right corner center vertex
+        
+        // tl, tr, trc
+        indices.push_back(edge_base + 0);
+        indices.push_back(edge_base + 1);
+        indices.push_back(trc);
+        
+        // tl, trc, tlc
+        indices.push_back(edge_base + 0);
+        indices.push_back(trc); 
+        indices.push_back(tlc);    
+
+        base_vertex += 2;
+
+    }
+    
+    // 7. Right edge strip (connects top-right and bottom-right corners)
+    if (radius > 0 && corners.size() >= 3) {
+
+        uint32_t edge_base = base_vertex;
+        // top and bottom edge vertices
+        vertices.push_back(core::vertex(c.x, a.y + radius, 0, color, uv_c.x, uv_a.y));
+        vertices.push_back(core::vertex(c.x, c.y - radius, 0, color, uv_c.x, uv_c.y));
+
+        // connect to corners using stored corner info
+        uint32_t trc = corners[1].center_vertex;   // top-right corner center vertex
+        uint32_t brc = corners[2].center_vertex; // bottom-right corner center vertex
+        
+        // tr, br, brc
+        indices.push_back(edge_base + 0);
+        indices.push_back(edge_base + 1);
+        indices.push_back(brc);
+        
+        // tr, brc, trc
+        indices.push_back(edge_base + 0);
+        indices.push_back(brc);
+        indices.push_back(trc);
+    
+        base_vertex += 2;
+
+    }
+    
+    // 8. Bottom edge strip (connects bottom-right and bottom-left corners)
+    if (radius > 0 && corners.size() >= 4) {
+
+        uint32_t edge_base = base_vertex;
+        // left and right edge vertices
+        vertices.push_back(core::vertex(a.x + radius, c.y, 0, color, uv_a.x, uv_c.y));
+        vertices.push_back(core::vertex(c.x - radius, c.y, 0, color, uv_c.x, uv_c.y));
+
+        // connect to corners using stored corner info
+        uint32_t brc = corners[2].center_vertex;  // bottom-right corner center vertex
+        uint32_t blc = corners[3].center_vertex;  // bottom-left corner center vertex
+        
+        // br, bl, blc
+        indices.push_back(edge_base + 1);
+        indices.push_back(edge_base + 0);
+        indices.push_back(blc);
+        
+        // br, blc, brc
+        indices.push_back(edge_base + 1);
+        indices.push_back(blc);
+        indices.push_back(brc);
+
+        base_vertex += 2;
+
+    }
+    
+    // 9. Left edge strip (connects bottom-left and top-left corners)
+    if (radius > 0 && corners.size() >= 4) {
+
+        uint32_t edge_base = base_vertex;
+        // top and bottom edge vertices
+        vertices.push_back(core::vertex(a.x, a.y + radius, 0, color, uv_a.x, uv_a.y));
+        vertices.push_back(core::vertex(a.x, c.y - radius, 0, color, uv_a.x, uv_c.y));
+
+        // connect to corners using stored corner info
+        uint32_t blc = corners[3].center_vertex;  // bottom-left corner center vertex
+        uint32_t tlc = corners[0].center_vertex;   // top-left corner center vertex
+        
+        // bl, tl, tlc
+        indices.push_back(edge_base + 1);
+        indices.push_back(edge_base + 0);
+        indices.push_back(tlc);
+        
+        // bl, tlc, blc
+        indices.push_back(edge_base + 1);
+        indices.push_back(tlc);
+        indices.push_back(blc);
+
+        base_vertex += 2;
+
+    }
+}
+
+void draw_buffer::prim_rect(const position& a, const position& c, const color& col, float rounding = 0.0f) {
     // collect vertices and indices for this rectangle outline
     std::vector<vertex> rect_vertices;
     std::vector<uint32_t> rect_indices;
     
-    // add 4 vertices for rectangle outline
-    rect_vertices.push_back(core::vertex(a.x, a.y, 0, pack_color_abgr(col), 0, 0)); // top-left
-    rect_vertices.push_back(core::vertex(c.x, a.y, 0, pack_color_abgr(col), 0, 0)); // top-right
-    rect_vertices.push_back(core::vertex(c.x, c.y, 0, pack_color_abgr(col), 0, 0)); // bottom-right
-    rect_vertices.push_back(core::vertex(a.x, c.y, 0, pack_color_abgr(col), 0, 0)); // bottom-left
-    
-    // add indices for line strip (outline)
-    rect_indices.push_back(0);
-    rect_indices.push_back(1);
-    rect_indices.push_back(2);
-    rect_indices.push_back(3);
-    rect_indices.push_back(0); // close the rectangle
+    if (rounding <= 0.0f) {
+        // original outline logic for no rounding
+        rect_vertices.push_back(core::vertex(a.x, a.y, 0, pack_color_abgr(col), 0, 0)); // top-left
+        rect_vertices.push_back(core::vertex(c.x, a.y, 0, pack_color_abgr(col), 0, 0)); // top-right
+        rect_vertices.push_back(core::vertex(c.x, c.y, 0, pack_color_abgr(col), 0, 0)); // bottom-right
+        rect_vertices.push_back(core::vertex(a.x, c.y, 0, pack_color_abgr(col), 0, 0)); // bottom-left
+        
+        // add indices for line strip (outline)
+        rect_indices.push_back(0);
+        rect_indices.push_back(1);
+        rect_indices.push_back(2);
+        rect_indices.push_back(3);
+        rect_indices.push_back(0); // close the rectangle
+    } else {
+        // use rounded quad helper for outline (simplified - just perimeter)
+        generate_rounded_quad_geometry(a, c, rounding, rect_vertices, rect_indices, pack_color_abgr(col));
+    }
     
     // use unified geometry system
     add_geometry_color_only(rect_vertices, rect_indices);
 }
 
-void draw_buffer::prim_rect_filled(const position& a, const position& c, const color& col) {
+void draw_buffer::prim_rect_filled(const position& a, const position& c, const color& col, float rounding = 0.0f) {
     // collect vertices and indices for this color-only quad
     std::vector<vertex> quad_vertices;
     std::vector<uint32_t> quad_indices;
     
-    // add 4 vertices for filled rectangle
-    quad_vertices.push_back(core::vertex(a.x, a.y, 0, pack_color_abgr(col), 0, 0)); // top-left
-    quad_vertices.push_back(core::vertex(c.x, a.y, 0, pack_color_abgr(col), 0, 0)); // top-right
-    quad_vertices.push_back(core::vertex(c.x, c.y, 0, pack_color_abgr(col), 0, 0)); // bottom-right
-    quad_vertices.push_back(core::vertex(a.x, c.y, 0, pack_color_abgr(col), 0, 0)); // bottom-left
-    
-    // add indices for 2 triangles (filled rectangle)
-    quad_indices.push_back(0);
-    quad_indices.push_back(1);
-    quad_indices.push_back(2);
-    quad_indices.push_back(0);
-    quad_indices.push_back(2);
-    quad_indices.push_back(3);
+    // use the rounded quad helper function
+    generate_rounded_quad_geometry(a, c, rounding, quad_vertices, quad_indices, pack_color_abgr(col));
     
     // use unified geometry system
     add_geometry_color_only(quad_vertices, quad_indices);
@@ -54,24 +348,36 @@ void draw_buffer::prim_rect_filled(const position& a, const position& c, const c
 
 void draw_buffer::prim_rect_multi_color(const position& a, const position& c, 
                                        const color& col_top_left, const color& col_top_right,
-                                       const color& col_bot_left, const color& col_bot_right) {
+                                       const color& col_bot_left, const color& col_bot_right, float rounding = 0.0f) {
     // collect vertices and indices for this multi-color quad
     std::vector<vertex> quad_vertices;
     std::vector<uint32_t> quad_indices;
     
-    // add 4 vertices with different colors
-    quad_vertices.push_back(core::vertex(a.x, a.y, 0, pack_color_abgr(col_top_left), 0, 0));     // top-left
-    quad_vertices.push_back(core::vertex(c.x, a.y, 0, pack_color_abgr(col_top_right), 0, 0));    // top-right
-    quad_vertices.push_back(core::vertex(c.x, c.y, 0, pack_color_abgr(col_bot_right), 0, 0));    // bottom-right
-    quad_vertices.push_back(core::vertex(a.x, c.y, 0, pack_color_abgr(col_bot_left), 0, 0));     // bottom-left
-    
-    // add indices for 2 triangles (filled rectangle)
-    quad_indices.push_back(0);
-    quad_indices.push_back(1);
-    quad_indices.push_back(2);
-    quad_indices.push_back(0);
-    quad_indices.push_back(2);
-    quad_indices.push_back(3);
+    if (rounding <= 0.0f) {
+        // original multi-color logic for no rounding
+        quad_vertices.push_back(core::vertex(a.x, a.y, 0, pack_color_abgr(col_top_left), 0, 0));     // top-left
+        quad_vertices.push_back(core::vertex(c.x, a.y, 0, pack_color_abgr(col_top_right), 0, 0));    // top-right
+        quad_vertices.push_back(core::vertex(c.x, c.y, 0, pack_color_abgr(col_bot_right), 0, 0));    // bottom-right
+        quad_vertices.push_back(core::vertex(a.x, c.y, 0, pack_color_abgr(col_bot_left), 0, 0));     // bottom-left
+        
+        // add indices for 2 triangles (filled rectangle)
+        quad_indices.push_back(0);
+        quad_indices.push_back(1);
+        quad_indices.push_back(2);
+        quad_indices.push_back(0);
+        quad_indices.push_back(2);
+        quad_indices.push_back(3);
+    } else {
+        // for rounded multi-color, we need to interpolate colors across the rounded surface
+        // this is complex, so we'll use the average color for now
+        color avg_color = {
+            (col_top_left.x + col_top_right.x + col_bot_left.x + col_bot_right.x) * 0.25f,
+            (col_top_left.y + col_top_right.y + col_bot_left.y + col_bot_right.y) * 0.25f,
+            (col_top_left.z + col_top_right.z + col_bot_left.z + col_bot_right.z) * 0.25f,
+            (col_top_left.w + col_top_right.w + col_bot_left.w + col_bot_right.w) * 0.25f
+        };
+        generate_rounded_quad_geometry(a, c, rounding, quad_vertices, quad_indices, pack_color_abgr(avg_color));
+    }
     
     // use unified geometry system
     add_geometry_color_only(quad_vertices, quad_indices);
@@ -278,24 +584,13 @@ void draw_buffer::circle_filled(const position& center, float radius, uint32_t c
     add_geometry_color_only(circle_vertices, circle_indices);
 }
 
-void draw_buffer::prim_rect_uv(const position& a, const position& c, const position& uv_a, const position& uv_c, uint32_t color) {
+void draw_buffer::prim_rect_uv(const position& a, const position& c, const position& uv_a, const position& uv_c, uint32_t color, float rounding = 0.0f) {
     // collect vertices and indices for this textured quad
     std::vector<vertex> quad_vertices;
     std::vector<uint32_t> quad_indices;
     
-    // add 4 vertices for textured quad
-    quad_vertices.push_back(core::vertex(a.x, a.y, 0, color, uv_a.x, uv_a.y)); // top-left
-    quad_vertices.push_back(core::vertex(c.x, a.y, 0, color, uv_c.x, uv_a.y)); // top-right
-    quad_vertices.push_back(core::vertex(c.x, c.y, 0, color, uv_c.x, uv_c.y)); // bottom-right
-    quad_vertices.push_back(core::vertex(a.x, c.y, 0, color, uv_a.x, uv_c.y)); // bottom-left
-    
-    // add indices for 2 triangles (filled quad)
-    quad_indices.push_back(0);
-    quad_indices.push_back(1);
-    quad_indices.push_back(2);
-    quad_indices.push_back(0);
-    quad_indices.push_back(2);
-    quad_indices.push_back(3);
+    // use the rounded quad helper function with UV coordinates
+    generate_rounded_quad_geometry(a, c, rounding, quad_vertices, quad_indices, color, uv_a, uv_c);
     
     // use unified geometry system
     if (current_texture()) {

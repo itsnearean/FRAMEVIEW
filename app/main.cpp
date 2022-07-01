@@ -113,7 +113,7 @@ int main() {
     
     tex_dict->process_update_queue(renderer.context());
 
-
+    bool regular = true;
 
     // create draw manager and unified buffer
     auto* draw_mgr = renderer.draw_manager();
@@ -137,6 +137,8 @@ int main() {
             utils::log_warn("Texture stack not empty at frame start, clearing: depth=%zu", unified_buf->texture_stack_depth());
             unified_buf->clear_texture_stack();
         }
+
+        if (regular) {
 
         // colored quad (non-textured)
         unified_buf->prim_rect_multi_color({100, 100}, {300, 300},
@@ -181,6 +183,28 @@ int main() {
         // filled circle
         unified_buf->circle_filled({700, 400}, 50, core::pack_color_abgr({1, 0, 0, 1}), core::pack_color_abgr({1, 1, 0, 1}), 48);
 
+        } else {
+        // demonstrate rounded quad functionality
+        
+        // rounded rectangle with 20% rounding
+        unified_buf->prim_rect_filled({100, 100}, {300, 200}, core::color{0.8f, 0.2f, 0.8f, 1.0f}, 0.2f);
+        
+        // rounded rectangle with 50% rounding (oval-like)
+        unified_buf->prim_rect_filled({350, 100}, {550, 200}, core::color{0.2f, 0.8f, 0.8f, 1.0f}, 0.5f);
+        
+        // rounded rectangle with 80% rounding (very rounded)
+        unified_buf->prim_rect_filled({600, 100}, {800, 200}, core::color{0.8f, 0.8f, 0.2f, 1.0f}, 0.8f);
+        
+        // rounded outline rectangle
+        unified_buf->prim_rect({850, 100}, {900, 300}, core::color{1.0f, 0.5f, 0.0f, 1.0f}, 0.3f);
+        
+        // rounded textured quad
+        unified_buf->push_texture(tex);
+        unified_buf->prim_rect_uv({400, 400}, {600, 600}, {0, 0}, {1, 1}, core::pack_color_abgr({1, 1, 1, 1}), 0.4f);
+        unified_buf->pop_texture();
+        
+        }
+
         // text with fallback font demonstration
         unified_buf->push_font(notoSansSC);
         
@@ -188,8 +212,8 @@ int main() {
         unified_buf->text("Unicode test | 你好世界 | にちは", {100, 550}, core::pack_color_abgr({1, 1, 0, 1}));
         
         // test fallback fonts with characters that might not be in the primary font (also aren't in the current nor the default fallback :D)
-        unified_buf->text("Fallback test: 🚀🎮🌟", {100, 600}, core::pack_color_abgr({0, 1, 1, 1}));
-        unified_buf->text("Mixed languages: こんにちは Hello 안녕하세요", {100, 650}, core::pack_color_abgr({1, 0.5f, 1, 1}));
+        // unified_buf->text("Fallback test: 🚀🎮🌟", {100, 600}, core::pack_color_abgr({0, 1, 1, 1}));
+        // unified_buf->text("Mixed languages: こんにちは Hello 안녕하세요", {100, 650}, core::pack_color_abgr({1, 0.5f, 1, 1}));
         
         unified_buf->pop_font();
         

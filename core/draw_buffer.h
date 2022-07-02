@@ -40,6 +40,10 @@ struct draw_command {
     // shader selection hints
     std::string shader_hint; // "color_only", "generic", "font", etc.
     
+    // resources bound by this command
+    std::shared_ptr<resources::font> font;       // for font_atlas commands
+    resources::tex texture;                      // for textured commands
+    
     // matrix transform could be added here
 };
 

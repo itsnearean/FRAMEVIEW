@@ -41,6 +41,14 @@ target_compile_options(FRAMEVIEW PRIVATE
     /MT
 )
 
+# enable/disable debug logging at compile time by configuration
+target_compile_definitions(FRAMEVIEW PRIVATE
+    $<$<CONFIG:Debug>:UTILS_DEBUG_LOGGING=1>
+    $<$<CONFIG:RelWithDebInfo>:UTILS_DEBUG_LOGGING=0>
+    $<$<CONFIG:Release>:UTILS_DEBUG_LOGGING=0>
+    $<$<CONFIG:MinSizeRel>:UTILS_DEBUG_LOGGING=0>
+)
+
 target_link_directories(FRAMEVIEW PRIVATE 
     "E:/freetype/lib"
 )

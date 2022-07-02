@@ -64,7 +64,7 @@ int main() {
     notoSansSC->load(renderer.device(), renderer.texture_dict());
     
     // set up fallback font chain
-    notoSansSC->add_fallback(notoSans);
+    notoSans->add_fallback(notoSansSC);
     // notoSans->add_fallback(trebuchetMS);
     // trebuchetMS->add_fallback(consola);
     
@@ -78,24 +78,12 @@ int main() {
     // consola->set_default_fallback(default_fallback);
 
 
-    // create a test texture (checkerboard)
+    // reduce noisy debug by default
+    utils::set_debug_logging(false);
+
     auto* tex_dict = renderer.texture_dict();
-    // auto tex = tex_dict->create_texture(128, 128);
     // we'll create the texture after loading the image to get the correct dimensions
-    resources::tex tex = nullptr;
-    int texture_width = 0, texture_height = 0;  // Store texture dimensions
-    
-    // std::vector<uint8_t> image_data(128 * 128 * 4);
-    // for (int y = 0; y < 128; ++y) {
-    //     for (int x = 0; x < 128; ++x) {
-    //         int idx = (y * 128 + x) * 4;
-    //         bool checker = ((x / 8) % 2) ^ ((y / 8) % 2);  // smaller squares
-    //         image_data[idx + 0] = checker ? 255 : 0;    // R: white or black
-    //         image_data[idx + 1] = checker ? 255 : 0;    // G: white or black  
-    //         image_data[idx + 2] = checker ? 255 : 0;    // B: white or black
-    //         image_data[idx + 3] = 255;                  // A: fully opaque
-    //     }
-    // }
+    resources::tex tex = nullptr;    
 
     int width, height, channels;
     // Force 4 channels (RGBA) for consistent format
@@ -104,16 +92,15 @@ int main() {
 
     // Create texture with actual image dimensions
     tex = tex_dict->create_texture(width, height);
-    texture_width = width;
-    texture_height = height;
-    
-    
+   
     tex_dict->set_texture_data(tex, image_data, width, height);
     stbi_image_free(image_data);
     
     tex_dict->process_update_queue(renderer.context());
 
     bool regular = true;
+    bool rounded = false;
+    bool blur = false;
 
     // create draw manager and unified buffer
     auto* draw_mgr = renderer.draw_manager();
@@ -140,82 +127,87 @@ int main() {
 
         if (regular) {
 
-        // colored quad (non-textured)
-        unified_buf->prim_rect_multi_color({100, 100}, {300, 300},
-            core::color{1.0f, 0.0f, 0.0f, 1.0f},
-            core::color{0.0f, 1.0f, 0.0f, 1.0f},
-            core::color{0.0f, 0.0f, 1.0f, 1.0f},
-            core::color{1.0f, 1.0f, 0.0f, 1.0f});
+            // colored quad (non-textured)
+            unified_buf->prim_rect_multi_color({100, 100}, {300, 300},
+                core::color{1.0f, 0.0f, 0.0f, 1.0f},
+                core::color{0.0f, 1.0f, 0.0f, 1.0f},
+                core::color{0.0f, 0.0f, 1.0f, 1.0f},
+                core::color{1.0f, 1.0f, 0.0f, 1.0f});
 
-        // demonstrate new RAII texture management
-        {
-            auto texture_scope = unified_buf->push_texture_scope(tex);
+            // demonstrate new RAII texture management
+            {
+                auto texture_scope = unified_buf->push_texture_scope(tex);
 
-            float quad_width = 200.0f;  // Base width
-            float quad_height = quad_width * (float)texture_height / (float)texture_width;  // Maintain aspect ratio
+                // texture will be automatically popped when scope ends
+                unified_buf->prim_rect_uv({350, 100}, {static_cast<float>(350 + width),  static_cast<float>(100 + height)}, {0, 0}, {1, 1}, core::pack_color_abgr({1, 1, 1, 1}));
+            } // texture automatically popped here
 
-            // texture will be automatically popped when scope ends
-            unified_buf->prim_rect_uv({350, 100}, {350 + quad_width, 100 + quad_height}, {0, 0}, {1, 1}, core::pack_color_abgr({1, 1, 1, 1}));
-        } // texture automatically popped here
-
-        
-        // demonstrate texture stack validation
-        // if (!unified_buf->is_texture_stack_valid()) {
-        //     utils::log_warn("Texture stack validation failed");
-        // }
             
-        // triangle
-        unified_buf->triangle_filled({600, 300}, {700, 100}, {800, 300},
-            core::pack_color_abgr({0, 1, 0, 1}),
-            core::pack_color_abgr({0, 0, 1, 1}),
-            core::pack_color_abgr({1, 1, 0, 1}));
-            
-        // n-gon
-        unified_buf->n_gon({950, 200}, 100, 7, core::pack_color_abgr({0.35f, 0.65f, 0, 1}));
+            // demonstrate texture stack validation
+            // if (!unified_buf->is_texture_stack_valid()) {
+            //     utils::log_warn("Texture stack validation failed");
+            // }
+                
+            // triangle
+            unified_buf->triangle_filled({600, 300}, {700, 100}, {800, 300},
+                core::pack_color_abgr({0, 1, 0, 1}),
+                core::pack_color_abgr({0, 0, 1, 1}),
+                core::pack_color_abgr({1, 1, 0, 1}));
+                
+            // n-gon
+            unified_buf->n_gon({950, 200}, 100, 7, core::pack_color_abgr({0.35f, 0.65f, 0, 1}));
 
-        // line
-        unified_buf->line({100, 350}, {300, 400}, core::pack_color_abgr({1, 1, 1, 1}), core::pack_color_abgr({1, 0, 1, 1}), 4.0f);
+            // line
+            unified_buf->line({100, 350}, {300, 400}, core::pack_color_abgr({1, 1, 1, 1}), core::pack_color_abgr({1, 0, 1, 1}), 4.0f);
 
-        // polyline
-        std::vector<core::position> poly_points = {{350, 350}, {400, 400}, {450, 350}, {500, 400}, {550, 350}};
-        unified_buf->poly_line(poly_points, core::pack_color_abgr({0, 1, 1, 1}), 3.0f, false);
+            // polyline
+            std::vector<core::position> poly_points = {{350, 350}, {400, 400}, {450, 350}, {500, 400}, {550, 350}};
+            unified_buf->poly_line(poly_points, core::pack_color_abgr({0, 1, 1, 1}), 3.0f, false);
 
-        // filled circle
-        unified_buf->circle_filled({700, 400}, 50, core::pack_color_abgr({1, 0, 0, 1}), core::pack_color_abgr({1, 1, 0, 1}), 48);
+            // filled circle
+            unified_buf->circle_filled({700, 400}, 50, core::pack_color_abgr({1, 0, 0, 1}), core::pack_color_abgr({1, 1, 0, 1}), 48);
 
-        } else {
-        // demonstrate rounded quad functionality
-        
-        // rounded rectangle with 20% rounding
-        unified_buf->prim_rect_filled({100, 100}, {300, 200}, core::color{0.8f, 0.2f, 0.8f, 1.0f}, 0.2f);
-        
-        // rounded rectangle with 50% rounding (oval-like)
-        unified_buf->prim_rect_filled({350, 100}, {550, 200}, core::color{0.2f, 0.8f, 0.8f, 1.0f}, 0.5f);
-        
-        // rounded rectangle with 80% rounding (very rounded)
-        unified_buf->prim_rect_filled({600, 100}, {800, 200}, core::color{0.8f, 0.8f, 0.2f, 1.0f}, 0.8f);
-        
-        // rounded outline rectangle
-        unified_buf->prim_rect({850, 100}, {900, 300}, core::color{1.0f, 0.5f, 0.0f, 1.0f}, 0.3f);
-        
-        // rounded textured quad
-        unified_buf->push_texture(tex);
-        unified_buf->prim_rect_uv({400, 400}, {600, 600}, {0, 0}, {1, 1}, core::pack_color_abgr({1, 1, 1, 1}), 0.4f);
-        unified_buf->pop_texture();
-        
+
+            // text with fallback font demonstration
+            unified_buf->push_font(notoSans);
+
+            unified_buf->text("Hello, FRAMEVIEW!", {100, 500}, core::pack_color_abgr({1, 1, 1, 1}));
+
+            // test fallback fonts with characters that might not be in the primary font (notoSansSC for Chinese & Japanese, nothing for emotes or korean yet)
+            unified_buf->text("Unicode test | 你好世界 | にちは", {100, 550}, core::pack_color_abgr({1, 1, 0, 1}));
+            // unified_buf->text("Fallback test: 🚀🎮🌟", {100, 600}, core::pack_color_abgr({0, 1, 1, 1}));
+            // unified_buf->text("Mixed languages: こんにちは Hello 안녕하세요", {100, 650}, core::pack_color_abgr({1, 0.5f, 1, 1}));
+
+            unified_buf->pop_font();
         }
 
-        // text with fallback font demonstration
-        unified_buf->push_font(notoSansSC);
+        // demonstrate rounded quad functionality
+        if (rounded) {
+                
+            // rounded rectangle with 20% rounding
+            unified_buf->prim_rect_filled({100, 100}, {300, 200}, core::color{0.8f, 0.2f, 0.8f, 1.0f}, 0.2f);
+            
+            // rounded rectangle with 50% rounding (oval-like)
+            unified_buf->prim_rect_filled({350, 100}, {550, 200}, core::color{0.2f, 0.8f, 0.8f, 1.0f}, 0.5f);
+            
+            // rounded rectangle with 80% rounding (very rounded)
+            unified_buf->prim_rect_filled({600, 100}, {800, 200}, core::color{0.8f, 0.8f, 0.2f, 1.0f}, 0.8f);
+            
+            // rounded outline rectangle
+            unified_buf->prim_rect({850, 100}, {900, 300}, core::color{1.0f, 0.5f, 0.0f, 1.0f}, 0.3f);
+            
+            // rounded textured quad
+            unified_buf->push_texture(tex);
+            unified_buf->prim_rect_uv({400, 400}, {600, 600}, {0, 0}, {1, 1}, core::pack_color_abgr({1, 1, 1, 1}), 0.4f);
+            unified_buf->pop_texture();
         
-        unified_buf->text("Hello, FRAMEVIEW!", {100, 500}, core::pack_color_abgr({1, 1, 1, 1}));
-        unified_buf->text("Unicode test | 你好世界 | にちは", {100, 550}, core::pack_color_abgr({1, 1, 0, 1}));
+            
+        }
+
+        if (blur) {
+
+        }
         
-        // test fallback fonts with characters that might not be in the primary font (also aren't in the current nor the default fallback :D)
-        // unified_buf->text("Fallback test: 🚀🎮🌟", {100, 600}, core::pack_color_abgr({0, 1, 1, 1}));
-        // unified_buf->text("Mixed languages: こんにちは Hello 안녕하세요", {100, 650}, core::pack_color_abgr({1, 0.5f, 1, 1}));
-        
-        unified_buf->pop_font();
         
         // test different fonts to show fallback system
         // unified_buf->push_font(trebuchetMS);
@@ -235,13 +227,6 @@ int main() {
                    unified_buf, unified_buf ? unified_buf->vertices.size() : 0, unified_buf ? unified_buf->indices.size() : 0);
         }
         
-        // demonstrate error handling and texture stack safety
-        // utils::log_info("=== Texture Stack Demo ===");
-        // utils::log_info("Unified buffer texture stack depth: %zu", unified_buf->texture_stack_depth());
-        
-        // demonstrate safe texture operations
-        // unified_buf->push_texture(nullptr); // this should be safely ignored
-        // utils::log_info("After pushing null texture, stack depth: %zu", unified_buf->texture_stack_depth());
         
         // demonstrate RAII texture management
         // {
@@ -256,11 +241,7 @@ int main() {
         //     utils::log_info("After scope 2 ends, texture stack depth: %zu", unified_buf->texture_stack_depth());
         // } // scope1 ends, texture popped
         
-        // utils::log_info("After all scopes end, texture stack depth: %zu", unified_buf->texture_stack_depth());
-        // utils::log_info("=== End Texture Stack Demo ===");
-
-        // demonstrate fallback shader system
-        // utils::log_info("=== Shader System Demo ===");
+        
         
         // test normal shader loading
         // renderer.set_pixel_shader("generic");
@@ -270,10 +251,6 @@ int main() {
         // renderer.set_pixel_shader("color_only");
         // utils::log_info("Set color_only shader successfully");
         
-        // test fallback behavior (this would normally fail if shaders weren't loaded)
-        // renderer.set_pixel_shader("generic");
-        // utils::log_info("Shader system demo completed");
-        // utils::log_info("=== End Shader System Demo ===");
         
         // memory tracking and leak detection
         // if (renderer.texture_dict()) {

@@ -286,34 +286,34 @@ void d3d11_renderer::draw_buffer(const core::draw_buffer* buf) {
             // utils::log_info("Processing font command: elem_count=%u, font_texture=%s", 
             //                cmd.elem_count, cmd.font_texture ? "true" : "false");
             
-            if (cmd.font_texture && !buf->font_stack().empty()) {
-                auto font = buf->font_stack().back();
+            if (cmd.font_texture) {
+                auto font = cmd.font;
                 if (font && font->get_atlas_srv()) {
                     // ensure font atlas texture is updated with any new glyphs before binding
                     // this is necessary for Unicode glyphs to display properly
                     font->update_atlas_texture(_device.Get());
                     
-                    // utils::log_info("Binding font atlas SRV for font");
+                    // utils::log_debug("Binding font atlas SRV for font");
                     ID3D11ShaderResourceView* srv = font->get_atlas_srv();
                     _context->PSSetShaderResources(0, 1, &srv);
+                    utils::log_debug("renderer: bound atlas for '%s'", font->path().c_str());
                 } else {
-                    utils::log_warn("Font atlas SRV not available");
+                    utils::log_warn("renderer: font atlas SRV not available");
                 }
-            } else {
-                utils::log_warn("Font command but no font texture or empty font stack");
             }
         } else if (cmd.type == core::geometry_type::textured) {
             // For textured commands, bind the current texture from stack
-            if (!buf->texture_stack().empty()) {
-                auto tex = buf->texture_stack().back();
+            if (cmd.native_texture) {
+                auto tex = cmd.texture;
                 if (tex) {
                     // Get the D3D11 SRV from the texture
                     ID3D11ShaderResourceView* srv = tex->get_srv();
                     if (srv) {
-                        // utils::log_info("Binding texture SRV for textured command");
+                        // utils::log_debug("Binding texture SRV for textured command");
                         _context->PSSetShaderResources(0, 1, &srv);
+                        utils::log_debug("renderer: bound texture SRV");
                     } else {
-                        utils::log_warn("Texture SRV not available");
+                        utils::log_warn("renderer: texture SRV not available");
                     }
                 }
             }

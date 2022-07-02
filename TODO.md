@@ -4,7 +4,6 @@
 
 ### Core Rendering Issues
 - [x] **Fix texture stretching issue** - Current texture rendering has aspect ratio problems
-    - Issue seems to have disappeared. Will continue to monitor.
 - [x] **Fix draw_manager rendering** - `d3d11_draw_manager::draw()` has incomplete implementation (lines 200-230)
 - [x] **Fix font fallback system** - No default font fallback when no font is set (line 177 in draw_buffer.cpp)
 - [x] **Fix device access in font loading** - Font system needs proper device access from renderer (line 117 in font.cpp)

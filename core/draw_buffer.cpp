@@ -307,7 +307,7 @@ void draw_buffer::generate_rounded_quad_geometry(const position& a, const positi
     }
 }
 
-void draw_buffer::prim_rect(const position& a, const position& c, const color& col, float rounding = 0.0f) {
+void draw_buffer::prim_rect(const position& a, const position& c, const color& col, float rounding) {
     // collect vertices and indices for this rectangle outline
     std::vector<vertex> rect_vertices;
     std::vector<uint32_t> rect_indices;
@@ -318,8 +318,8 @@ void draw_buffer::prim_rect(const position& a, const position& c, const color& c
         rect_vertices.push_back(core::vertex(c.x, a.y, 0, pack_color_abgr(col), 0, 0)); // top-right
         rect_vertices.push_back(core::vertex(c.x, c.y, 0, pack_color_abgr(col), 0, 0)); // bottom-right
         rect_vertices.push_back(core::vertex(a.x, c.y, 0, pack_color_abgr(col), 0, 0)); // bottom-left
-        
-        // add indices for line strip (outline)
+    
+    // add indices for line strip (outline)
         rect_indices.push_back(0);
         rect_indices.push_back(1);
         rect_indices.push_back(2);
@@ -334,7 +334,7 @@ void draw_buffer::prim_rect(const position& a, const position& c, const color& c
     add_geometry_color_only(rect_vertices, rect_indices);
 }
 
-void draw_buffer::prim_rect_filled(const position& a, const position& c, const color& col, float rounding = 0.0f) {
+void draw_buffer::prim_rect_filled(const position& a, const position& c, const color& col, float rounding) {
     // collect vertices and indices for this color-only quad
     std::vector<vertex> quad_vertices;
     std::vector<uint32_t> quad_indices;
@@ -348,7 +348,7 @@ void draw_buffer::prim_rect_filled(const position& a, const position& c, const c
 
 void draw_buffer::prim_rect_multi_color(const position& a, const position& c, 
                                        const color& col_top_left, const color& col_top_right,
-                                       const color& col_bot_left, const color& col_bot_right, float rounding = 0.0f) {
+                                       const color& col_bot_left, const color& col_bot_right, float rounding) {
     // collect vertices and indices for this multi-color quad
     std::vector<vertex> quad_vertices;
     std::vector<uint32_t> quad_indices;
@@ -359,8 +359,8 @@ void draw_buffer::prim_rect_multi_color(const position& a, const position& c,
         quad_vertices.push_back(core::vertex(c.x, a.y, 0, pack_color_abgr(col_top_right), 0, 0));    // top-right
         quad_vertices.push_back(core::vertex(c.x, c.y, 0, pack_color_abgr(col_bot_right), 0, 0));    // bottom-right
         quad_vertices.push_back(core::vertex(a.x, c.y, 0, pack_color_abgr(col_bot_left), 0, 0));     // bottom-left
-        
-        // add indices for 2 triangles (filled rectangle)
+    
+    // add indices for 2 triangles (filled rectangle)
         quad_indices.push_back(0);
         quad_indices.push_back(1);
         quad_indices.push_back(2);
@@ -584,7 +584,7 @@ void draw_buffer::circle_filled(const position& center, float radius, uint32_t c
     add_geometry_color_only(circle_vertices, circle_indices);
 }
 
-void draw_buffer::prim_rect_uv(const position& a, const position& c, const position& uv_a, const position& uv_c, uint32_t color, float rounding = 0.0f) {
+void draw_buffer::prim_rect_uv(const position& a, const position& c, const position& uv_a, const position& uv_c, uint32_t color, float rounding) {
     // collect vertices and indices for this textured quad
     std::vector<vertex> quad_vertices;
     std::vector<uint32_t> quad_indices;
@@ -641,19 +641,20 @@ void draw_buffer::text(const std::string& str, const position& pos, uint32_t col
         return;
     }
     
-    auto font = font_stack_.back();
-    if (!font) {
+    auto base_font = font_stack_.back();
+    if (!base_font) {
         utils::log_warn("text: font is null, skipping text rendering");
         return;
     }
     
-    // collect all vertices and indices for this text
-    std::vector<vertex> text_vertices;
-    std::vector<uint32_t> text_indices;
+    // collect vertices/indices per font run
+    std::vector<vertex> run_vertices;
+    std::vector<uint32_t> run_indices;
+    std::shared_ptr<resources::font> run_font = nullptr;
     
     float x = pos.x;
-    float baseline_y = pos.y + font->metrics().ascender;
-    
+    float baseline_y = pos.y + base_font->metrics().ascender;
+        
     const char* ptr = str.c_str();
     const char* end = ptr + str.length();
     
@@ -692,20 +693,46 @@ void draw_buffer::text(const std::string& str, const position& pos, uint32_t col
             continue;
         }
         
-        // ensure glyph is loaded (dynamic paging)
-        if (!font->ensure_glyph(codepoint)) {
-            // try fallback fonts
-            auto fallback_font = font->get_fallback_for_codepoint(codepoint);
-            if (fallback_font && fallback_font->ensure_glyph(codepoint)) {
-                font = fallback_font; // use fallback font for this glyph
-            } else {
-                utils::log_warn("Failed to load glyph for codepoint U+%04X in font and all fallbacks", codepoint);
-                ptr += bytes_read;
-                continue;
+        // select a font that can provide this glyph (base font or fallbacks)
+        std::shared_ptr<resources::font> glyph_font = base_font;
+        bool have_glyph = glyph_font->ensure_glyph(codepoint);
+        if (!have_glyph) {
+            // try declared fallbacks in order
+            for (const auto& fb : base_font->fallbacks()) {
+                if (fb && fb->ensure_glyph(codepoint)) { glyph_font = fb; have_glyph = true; break; }
+            }
+            // try default fallback as last resort
+            if (!have_glyph) {
+                auto df = base_font->get_default_fallback();
+                if (df && df->ensure_glyph(codepoint)) { glyph_font = df; have_glyph = true; }
+            }
+            if (have_glyph && glyph_font.get() != base_font.get()) {
+                utils::log_debug("text: using fallback font '%s' for U+%04X", glyph_font->path().c_str(), codepoint);
             }
         }
+        if (!have_glyph) {
+            utils::log_warn("yph for codepoint U+%04X in font and all fallbacks", codepoint);
+            ptr += bytes_read;
+            continue;
+        }
         
-        const auto& glyph = font->glyphs().at(codepoint);
+        // if font changed, flush previous run
+        if (!run_font) {
+            run_font = glyph_font;
+            utils::log_debug("text: start run with font '%s'", run_font->path().c_str());
+        }
+        if (glyph_font.get() != run_font.get()) {
+            if (!run_vertices.empty() && !run_indices.empty()) {
+                add_geometry_font(run_vertices, run_indices, run_font);
+                utils::log_debug("text: flush run font='%s' vtx=%zu idx=%zu", run_font->path().c_str(), run_vertices.size(), run_indices.size());
+                run_vertices.clear();
+                run_indices.clear();
+            }
+            run_font = glyph_font;
+            utils::log_debug("text: switch run to font '%s'", run_font->path().c_str());
+        }
+
+        const auto& glyph = glyph_font->glyphs().at(codepoint);
         
         // calculate glyph position relative to baseline
         float x0 = x + glyph.bearingX;
@@ -716,21 +743,21 @@ void draw_buffer::text(const std::string& str, const position& pos, uint32_t col
         float u0 = glyph.u0, v0 = glyph.v0, u1 = glyph.u1, v1 = glyph.v1;
         
         // create glyph vertices and indices
-        uint32_t base_vertex = static_cast<uint32_t>(text_vertices.size());
+        uint32_t base_vertex = static_cast<uint32_t>(run_vertices.size());
         
         // add 4 vertices for glyph quad
-        text_vertices.push_back(core::vertex(x0, y0, 0, color, u0, v0)); // top-left
-        text_vertices.push_back(core::vertex(x1, y0, 0, color, u1, v0)); // top-right
-        text_vertices.push_back(core::vertex(x1, y1, 0, color, u1, v1)); // bottom-right
-        text_vertices.push_back(core::vertex(x0, y1, 0, color, u0, v1)); // bottom-left
+        run_vertices.push_back(core::vertex(x0, y0, 0, color, u0, v0)); // top-left
+        run_vertices.push_back(core::vertex(x1, y0, 0, color, u1, v0)); // top-right
+        run_vertices.push_back(core::vertex(x1, y1, 0, color, u1, v1)); // bottom-right
+        run_vertices.push_back(core::vertex(x0, y1, 0, color, u0, v1)); // bottom-left
         
         // add indices for 2 triangles (filled quad)
-        text_indices.push_back(base_vertex);
-        text_indices.push_back(base_vertex + 1);
-        text_indices.push_back(base_vertex + 2);
-        text_indices.push_back(base_vertex);
-        text_indices.push_back(base_vertex + 2);
-        text_indices.push_back(base_vertex + 3);
+        run_indices.push_back(base_vertex);
+        run_indices.push_back(base_vertex + 1);
+        run_indices.push_back(base_vertex + 2);
+        run_indices.push_back(base_vertex);
+        run_indices.push_back(base_vertex + 2);
+        run_indices.push_back(base_vertex + 3);
         
         // advance to next character position
         x += glyph.advance;
@@ -738,9 +765,10 @@ void draw_buffer::text(const std::string& str, const position& pos, uint32_t col
         ptr += bytes_read;
     }
     
-    // use unified geometry system to add font geometry
-    if (!text_vertices.empty() && !text_indices.empty()) {
-        add_geometry_font(text_vertices, text_indices, font);
+    // flush last run
+    if (!run_vertices.empty() && !run_indices.empty() && run_font) {
+        utils::log_debug("text: flush final run font='%s' vtx=%zu idx=%zu", run_font->path().c_str(), run_vertices.size(), run_indices.size());
+        add_geometry_font(run_vertices, run_indices, run_font);
     }
 }
 
@@ -796,7 +824,7 @@ void draw_buffer::pop_texture() {
 
 resources::tex draw_buffer::current_texture() const {
     if (texture_stack_.empty()) {
-        return nullptr;
+    return nullptr;
     }
     return texture_stack_.back();
 }
@@ -859,11 +887,6 @@ void draw_buffer::add_geometry_color_only(const std::vector<vertex>& vertices, c
 void draw_buffer::add_geometry_textured(const std::vector<vertex>& vertices, const std::vector<uint32_t>& indices, resources::tex texture) {
     begin_command(core::geometry_type::textured, "generic");
     
-    // push texture to stack
-    if (texture) {
-        push_texture(texture);
-    }
-    
     uint32_t base_vertex = static_cast<uint32_t>(this->vertices.size());
     uint32_t base_index = static_cast<uint32_t>(this->indices.size());
     
@@ -879,6 +902,7 @@ void draw_buffer::add_geometry_textured(const std::vector<vertex>& vertices, con
     if (!cmds.empty()) {
         cmds.back().elem_count = static_cast<uint32_t>(indices.size());
         cmds.back().native_texture = true;
+        cmds.back().texture = texture;
     }
     
     end_command();
@@ -889,12 +913,6 @@ void draw_buffer::add_geometry_font(const std::vector<vertex>& vertices, const s
     //                vertices.size(), indices.size(), font ? "valid" : "null");
     
     begin_command(core::geometry_type::font_atlas, "generic");
-    
-    // store font reference for rendering
-    if (font) {
-        push_font(font);
-        // utils::log_info("Pushed font to stack, stack depth now: %zu", font_stack_.size());
-    }
     
     uint32_t base_vertex = static_cast<uint32_t>(this->vertices.size());
     uint32_t base_index = static_cast<uint32_t>(this->indices.size());
@@ -911,8 +929,7 @@ void draw_buffer::add_geometry_font(const std::vector<vertex>& vertices, const s
     if (!cmds.empty()) {
         cmds.back().elem_count = static_cast<uint32_t>(indices.size());
         cmds.back().font_texture = true;
-        // utils::log_info("Created font command: elem_count=%u, font_texture=%s", 
-        //                cmds.back().elem_count, cmds.back().font_texture ? "true" : "false");
+        cmds.back().font = font;
     }
     
     end_command();

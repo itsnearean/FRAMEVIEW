@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 #include <cstdint>
+#include <unordered_map>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
@@ -132,6 +133,8 @@ protected:
     int _current_x = 0;
     int _current_y = 0;
     int _current_row_height = 0;
+    // cache: codepoint -> font to speed up repeated fallback lookups
+    mutable std::unordered_map<uint32_t, std::weak_ptr<font>> _fallback_cache;
     FT_Library _ft_library = nullptr;
     FT_Face _ft_face = nullptr;
 #ifdef _WIN32

@@ -185,6 +185,9 @@ bool font::load_from_memory(resources::texture_dict* tex_dict) {
     _has_kerning = FT_HAS_KERNING(_ft_face);
     _colored = (FT_HAS_COLOR(_ft_face) != 0);
     for (uint32_t c = FIRST_CODEPOINT; c <= LAST_CODEPOINT; ++c) {
+        // skip codepoints not present in this face; avoid packing .notdef
+        FT_UInt glyph_index = FT_Get_Char_Index(_ft_face, c);
+        if (glyph_index == 0) continue;
         if (FT_Load_Char(_ft_face, c, FT_LOAD_RENDER)) continue;
         FT_GlyphSlot g = _ft_face->glyph;
         
@@ -387,16 +390,24 @@ std::shared_ptr<font> font::get_fallback_for_codepoint(uint32_t codepoint) const
     if (has_glyph(codepoint)) {
         return nullptr; // no fallback needed
     }
+    // cache lookup
+    if (auto it = _fallback_cache.find(codepoint); it != _fallback_cache.end()) {
+        if (auto cached = it->second.lock()) {
+            return cached;
+        }
+    }
     
     // check fallback fonts in order
     for (const auto& fallback : _fallbacks) {
         if (fallback && fallback->has_glyph(codepoint)) {
+            _fallback_cache[codepoint] = fallback;
             return fallback;
         }
     }
     
     // check default fallback
     if (_default_fallback && _default_fallback->has_glyph(codepoint)) {
+        _fallback_cache[codepoint] = _default_fallback;
         return _default_fallback;
     }
     
@@ -441,6 +452,12 @@ bool font::ensure_glyph(uint32_t codepoint) {
         return false;
     }
     
+    // ensure this face actually contains the character; skip .notdef (index 0)
+    FT_UInt glyph_index = FT_Get_Char_Index(_ft_face, codepoint);
+    if (glyph_index == 0) {
+        return false;
+    }
+
     // load the glyph
     if (FT_Load_Char(_ft_face, codepoint, FT_LOAD_RENDER)) {
         utils::log_warn("Failed to load glyph U+%04X", codepoint);
@@ -472,6 +489,7 @@ bool font::ensure_glyph(uint32_t codepoint) {
     // copy glyph data to atlas
     auto& current_page = _atlas_pages[_current_page];
     int page_width = _atlas_page_widths[_current_page];
+    int page_height = _atlas_page_heights[_current_page];
     
     if (g->bitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
         // 8-bit per pixel
@@ -507,9 +525,9 @@ bool font::ensure_glyph(uint32_t codepoint) {
     // create glyph info
     glyph_info info;
     info.u0 = float(_current_x) / page_width;
-    info.v0 = float(_current_y) / page_width;
+    info.v0 = float(_current_y) / page_height;
     info.u1 = float(_current_x + g->bitmap.width) / page_width;
-    info.v1 = float(_current_y + g->bitmap.rows) / page_width;
+    info.v1 = float(_current_y + g->bitmap.rows) / page_height;
     info.width = g->bitmap.width;
     info.height = g->bitmap.rows;
     info.advance = g->advance.x >> 6;

@@ -26,10 +26,10 @@ namespace detail {
 
     constexpr const char* color_code(log_level level) {
         switch (level) {
-            case log_level::info:  return "\033[34m"; // Blue
+            case log_level::info:  return "\033[32m"; // Green
             case log_level::warn:  return "\033[33m"; // Yellow
             case log_level::error: return "\033[31m"; // Red
-            case log_level::debug: return "\033[32m"; // Green
+            case log_level::debug: return "\033[34m"; // Blue
             default:               return "\033[0m";
         }
     }
@@ -48,7 +48,18 @@ namespace detail {
         return buf;
     }
 
+    inline bool& debug_enabled_flag() {
+        // default based on compile-time flag; can be overridden at runtime via set_debug_logging
+#if defined(UTILS_DEBUG_LOGGING) && (UTILS_DEBUG_LOGGING==0)
+        static bool enabled = false;
+#else
+        static bool enabled = true;
+#endif
+        return enabled;
+    }
+
     void vlog(log_level level, const char* fmt, va_list args) {
+        if (level == log_level::debug && !debug_enabled_flag()) return;
         std::lock_guard<std::mutex> lock(log_mutex());
         char msg[1024];
         std::vsnprintf(msg, sizeof(msg), fmt, args);
@@ -84,6 +95,14 @@ void log_debug(const char* fmt, ...) {
     va_start(args, fmt);
     detail::vlog(detail::log_level::debug, fmt, args);
     va_end(args);
+}
+
+void set_debug_logging(bool enabled) {
+    detail::debug_enabled_flag() = enabled;
+}
+
+bool is_debug_logging() {
+    return detail::debug_enabled_flag();
 }
 
 } // namespace utils 

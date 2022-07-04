@@ -4,9 +4,9 @@
 #include <vector>
 #include <string>
 #include <stack>
-#include "../backend/d3d11/d3d11_renderer.h"
-#include "../core/renderer.h"
-#include "../core/draw_types.h"
+#include "../backend/d3d11/d3d11_context.h"
+#include "../core/context.h"
+#include "../core/types.h"
 #include "../resources/font.h"
 #include "../utils/logger.h"
 #define STB_IMAGE_IMPLEMENTATION
@@ -47,21 +47,21 @@ int main() {
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
 
-    // create renderer
-    d3d11_renderer renderer;
-    renderer.initialize(1280, 720, hwnd);
+    // create context
+    d3d11_context context;
+    context.initialize(1280, 720, hwnd);
 
-    // load fonts (now renderer is available)
+    // load fonts (now context is available)
     // auto consola = std::make_shared<resources::font>("C:\\Windows\\Fonts\\consola.ttf", 32.f);
     // auto trebuchetMS = std::make_shared<resources::font>("resources\\fonts\\trebuchetMS.ttf", 32.f);
     auto notoSans = std::make_shared<resources::font>("resources\\fonts\\NotoSans-VariableFont_wdth,wght.ttf", 32.f);
     auto notoSansSC = std::make_shared<resources::font>("resources\\fonts\\NotoSansSC-VariableFont_wght.ttf", 32.f);
 
     // load fonts with texture dictionary
-    // consola->load(renderer.device(), renderer.texture_dict());
-    // trebuchetMS->load(renderer.device(), renderer.texture_dict());
-    notoSans->load(renderer.device(), renderer.texture_dict());
-    notoSansSC->load(renderer.device(), renderer.texture_dict());
+    // consola->load(context.device(), context.texture_dict());
+    // trebuchetMS->load(context.device(), context.texture_dict());
+    notoSans->load(context.device(), context.texture_dict());
+    notoSansSC->load(context.device(), context.texture_dict());
     
     // set up fallback font chain
     notoSans->add_fallback(notoSansSC);
@@ -70,7 +70,7 @@ int main() {
     
     // set default fallback for any font that doesn't have specific fallbacks
     auto default_fallback = std::make_shared<resources::font>("C:\\Windows\\Fonts\\arial.ttf", 32.f);
-    default_fallback->load(renderer.device(), renderer.texture_dict());
+    default_fallback->load(context.device(), context.texture_dict());
     
     notoSansSC->set_default_fallback(default_fallback);
     notoSans->set_default_fallback(default_fallback);
@@ -81,7 +81,7 @@ int main() {
     // reduce noisy debug by default
     utils::set_debug_logging(false);
 
-    auto* tex_dict = renderer.texture_dict();
+    auto* tex_dict = context.texture_dict();
     // we'll create the texture after loading the image to get the correct dimensions
     resources::tex tex = nullptr;    
 
@@ -96,14 +96,14 @@ int main() {
     tex_dict->set_texture_data(tex, image_data, width, height);
     stbi_image_free(image_data);
     
-    tex_dict->process_update_queue(renderer.context());
+    tex_dict->process_update_queue(context.context());
 
     bool regular = true;
     bool rounded = false;
     bool blur = false;
 
     // create draw manager and unified buffer
-    auto* draw_mgr = renderer.draw_manager();
+    auto* draw_mgr = context.resource_manager();
     size_t unified_buffer_id = draw_mgr->register_buffer(0);
     auto* unified_buf = draw_mgr->get_buffer(unified_buffer_id);
 
@@ -214,14 +214,14 @@ int main() {
         // unified_buf->text("Trebuchet MS font with fallbacks", {100, 700}, core::pack_color_abgr({0.5f, 1, 0.5f, 1}));
         // unified_buf->pop_font();
         
-        renderer.begin_frame();
-        renderer.clear(core::color{0.1f, 0.2f, 0.3f, 1.0f});
+        context.begin_frame();
+        context.clear(core::color{0.1f, 0.2f, 0.3f, 1.0f});
         
         // draw unified buffer (handles all geometry types automatically)
         if (unified_buf && !unified_buf->vertices.empty() && !unified_buf->indices.empty()) {
             // utils::log_info("Rendering unified buffer: %zu commands, %zu vertices, %zu indices", 
             //                unified_buf->command_count(), unified_buf->total_vertex_count(), unified_buf->total_index_count());
-            renderer.draw_buffer(unified_buf);
+            context.buffer(unified_buf);
         } else {
             utils::log_warn("Unified buffer empty: buf=%p, vertices=%zu, indices=%zu", 
                    unified_buf, unified_buf ? unified_buf->vertices.size() : 0, unified_buf ? unified_buf->indices.size() : 0);
@@ -244,20 +244,20 @@ int main() {
         
         
         // test normal shader loading
-        // renderer.set_pixel_shader("generic");
+        // context.set_pixel_shader("generic");
         // utils::log_info("Set generic shader successfully");
         
         // test color-only shader
-        // renderer.set_pixel_shader("color_only");
+        // context.set_pixel_shader("color_only");
         // utils::log_info("Set color_only shader successfully");
         
         
         // memory tracking and leak detection
-        // if (renderer.texture_dict()) {
-        //     renderer.texture_dict()->log_memory_stats();
+        // if (context.texture_dict()) {
+        //     context.texture_dict()->log_memory_stats();
         // }
         
-        renderer.end_frame();
+        context.end_frame();
     }
     return 0;
 }

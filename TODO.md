@@ -4,8 +4,8 @@
 
 ### Core Rendering Issues
 - [x] **Fix texture stretching issue** - Current texture rendering has aspect ratio problems
-- [x] **Fix draw_manager rendering** - `d3d11_draw_manager::draw()` has incomplete implementation (lines 200-230)
-- [x] **Fix font fallback system** - No default font fallback when no font is set (line 177 in draw_buffer.cpp)
+- [x] **Fix resource_manager rendering** - `d3d11_resource_manager::draw()` has incomplete implementation (lines 200-230)
+- [x] **Fix font fallback system** - No default font fallback when no font is set (line 177 in buffer.cpp)
 - [x] **Fix device access in font loading** - Font system needs proper device access from renderer (line 117 in font.cpp)
 - [x] **Fix texture handle creation** - Font atlas needs proper `resources::tex` handle creation (line 146 in font.cpp)
 - [x] **Consolidate to single buffer system** - Replace multiple buffers (textured, non-textured, text) with unified buffer that handles all geometry types

@@ -52,8 +52,8 @@ FRAMEVIEW is currently set up for Windows development using MSVC (cl.exe) and Di
    cl.exe /Zi /EHsc /std:c++17 /MT /I . /I E:\freetype\include \
       /Fo .\out\obj\ /Fd .\out\FRAMEVIEW.pdb /Fe .\out\FRAMEVIEW.exe \
       .\app\main.cpp .\resources\font.cpp .\resources\shader.cpp \
-      .\core\draw_buffer.cpp .\backend\d3d11\d3d11_renderer.cpp \
-      .\backend\d3d11\d3d11_draw_manager.cpp .\backend\d3d11\d3d11_texture.cpp \
+      .\core\buffer.cpp .\backend\d3d11\d3d11_renderer.cpp \
+      .\backend\d3d11\d3d11_resource_manager.cpp .\backend\d3d11\d3d11_texture.cpp \
       .\utils\error.cpp .\utils\logger.cpp \
       /link /LIBPATH:E:\freetype\lib freetype.lib d3d11.lib d3dcompiler.lib \
       dxgi.lib user32.lib kernel32.lib msvcrt.lib msvcmrt.lib \

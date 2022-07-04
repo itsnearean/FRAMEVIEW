@@ -17,10 +17,10 @@ project(FRAMEVIEW)
 
 set(SOURCES
     app/main.cpp
-    backend/d3d11/d3d11_draw_manager.cpp
+    backend/d3d11/d3d11_resource_manager.cpp
     backend/d3d11/d3d11_renderer.cpp
     backend/d3d11/d3d11_texture.cpp
-    core/draw_buffer.cpp
+    core/buffer.cpp
     resources/font.cpp
     resources/shader.cpp
     utils/error.cpp

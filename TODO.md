@@ -76,6 +76,13 @@
 - [ ] **Add shader compilation caching** - Cache compiled shaders to avoid recompilation
 - [ ] **Add shader error reporting** - Detailed error messages for shader compilation failures
 
+### Post-processing
+- [ ] **Make blur fully working**
+  - Implement uniform/control for blur strength and passes
+  - Wire up `scissor_blur_x.hlsl`/`scissor_blur_y.hlsl` paths and state
+  - Add per-command blur params in `core::draw_command` (already present: `blur_strength`, `pass_count`), and render path that runs horizontal+vertical passes
+  - Validate with test quads and scissor region
+
 ## 📦 **RESOURCE MANAGEMENT**
 
 ### Texture System

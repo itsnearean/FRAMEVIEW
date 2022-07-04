@@ -8,7 +8,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     "MinSizeRel" "RelWithDebInfo")
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/out/CMAKE)
@@ -37,7 +37,6 @@ target_include_directories(FRAMEVIEW PRIVATE
 target_compile_options(FRAMEVIEW PRIVATE
     /Zi
     /EHsc
-    /std:c++17
     /MT
 )
 
